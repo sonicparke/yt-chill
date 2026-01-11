@@ -201,12 +201,100 @@ async fn main() -> anyhow::Result<()> {
             }
 
             AppState::Feed => {
-                println!("{}", "Feed feature coming soon!".yellow());
-                state = AppState::Exit;
+                use crate::storage::subscriptions::load_subscriptions;
+
+                // Load subscriptions
+                let subs = load_subscriptions().await?;
+
+                if subs.is_empty() {
+                    println!("{}", "No subscriptions yet. Use --subscribe to add channels.".yellow());
+                    state = AppState::Exit;
+                    continue;
+                }
+
+                println!("{} {} subscriptions", "Loading feed from".dimmed(), subs.len());
+
+                // Fetch videos from each subscription
+                let mut all_videos: Vec<Video> = Vec::new();
+                for sub in &subs {
+                    match youtube::fetch_channel_videos(&sub.handle, 5).await {
+                        Ok(videos) => {
+                            all_videos.extend(videos);
+                        }
+                        Err(_) => {
+                            // Silently skip failed channels
+                        }
+                    }
+                }
+
+                if all_videos.is_empty() {
+                    println!("{}", "No videos found in your feed.".yellow());
+                    state = AppState::Exit;
+                    continue;
+                }
+
+                // Sort by... nothing for now, just show them
+                let menu_items: Vec<MenuItem<Video>> = all_videos
+                    .into_iter()
+                    .map(|v| MenuItem {
+                        label: format_video_label(&v),
+                        value: v,
+                    })
+                    .collect();
+
+                selected_video = selector.select(&menu_items, "Select from Feed");
+                state = if selected_video.is_some() {
+                    AppState::Play
+                } else {
+                    AppState::Exit
+                };
             }
 
             AppState::Subscribe => {
-                println!("{}", "Subscribe feature coming soon!".yellow());
+                use crate::storage::subscriptions::add_subscription;
+                use crate::types::Subscription;
+
+                // Prompt for channel search
+                let search_query: String = dialoguer::Input::new()
+                    .with_prompt("Search for channel")
+                    .interact_text()?;
+
+                if search_query.is_empty() {
+                    state = AppState::Exit;
+                    continue;
+                }
+
+                println!("{}", "Searching for channels...".dimmed());
+                match youtube::search_channels(&search_query, 10).await {
+                    Ok(channels) => {
+                        let menu_items: Vec<MenuItem<youtube::ChannelInfo>> = channels
+                            .into_iter()
+                            .map(|c| MenuItem {
+                                label: format!("{} ({})", c.name, c.handle.cyan()),
+                                value: c,
+                            })
+                            .collect();
+
+                        if let Some(channel) = selector.select(&menu_items, "Select Channel") {
+                            let sub = Subscription {
+                                name: channel.name.clone(),
+                                handle: channel.handle.clone(),
+                            };
+
+                            match add_subscription(&sub).await {
+                                Ok(_) => {
+                                    println!("{} Subscribed to {}", "✓".green(), channel.name);
+                                }
+                                Err(e) => {
+                                    eprintln!("{} Failed to subscribe: {}", "Error:".red(), e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{} {}", "Error:".red(), e);
+                    }
+                }
                 state = AppState::Exit;
             }
 

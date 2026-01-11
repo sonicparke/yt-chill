@@ -146,8 +146,19 @@ fn parse_search_results(data: &serde_json::Value, limit: usize) -> Vec<Video> {
         .collect()
 }
 
-/// Search YouTube for videos
+/// Search YouTube for videos (with caching)
 pub async fn search_videos(query: &str, limit: usize) -> Result<Vec<Video>> {
+    use crate::storage::cache::{get_cache_key, get_cached, set_cache};
+
+    // Generate cache key from query + limit
+    let cache_key = get_cache_key(&format!("video:{}:{}", query, limit));
+
+    // Check cache first
+    if let Some(cached) = get_cached::<Vec<Video>>(&cache_key).await {
+        return Ok(cached);
+    }
+
+    // Fetch from YouTube
     let url = build_search_url(query, "video");
     let html = fetch_youtube_html(&url).await?;
     let data = extract_yt_initial_data(&html)?;
@@ -155,6 +166,109 @@ pub async fn search_videos(query: &str, limit: usize) -> Result<Vec<Video>> {
 
     if results.is_empty() {
         return Err(YtChillError::NoResults);
+    }
+
+    // Cache results (ignore errors, caching is best-effort)
+    let _ = set_cache(&cache_key, &results).await;
+
+    Ok(results)
+}
+
+/// Channel info for subscriptions
+#[derive(Debug, Clone)]
+pub struct ChannelInfo {
+    pub name: String,
+    pub handle: String,
+}
+
+/// Parse channel results from ytInitialData
+fn parse_channel_results(data: &serde_json::Value, limit: usize) -> Vec<ChannelInfo> {
+    let items = data
+        .get("contents")
+        .and_then(|c| c.get("twoColumnSearchResultsRenderer"))
+        .and_then(|r| r.get("primaryContents"))
+        .and_then(|p| p.get("sectionListRenderer"))
+        .and_then(|s| s.get("contents"))
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("itemSectionRenderer"))
+        .and_then(|i| i.get("contents"))
+        .and_then(|c| c.as_array());
+
+    let Some(items) = items else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| {
+            let c = item.get("channelRenderer")?;
+
+            let name = c
+                .get("title")
+                .and_then(|t| t.get("simpleText"))
+                .and_then(|t| t.as_str())
+                .map(decode_html_entities)
+                .unwrap_or_default();
+
+            // Try to get handle, fall back to channel ID
+            let handle = c
+                .get("subscriberCountText")
+                .and_then(|_| c.get("channelId"))
+                .and_then(|id| id.as_str())
+                .map(|id| format!("@{}", id))
+                .or_else(|| {
+                    c.get("channelId")
+                        .and_then(|id| id.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default();
+
+            if name.is_empty() || handle.is_empty() {
+                return None;
+            }
+
+            Some(ChannelInfo { name, handle })
+        })
+        .take(limit)
+        .collect()
+}
+
+/// Search for channels
+pub async fn search_channels(query: &str, limit: usize) -> Result<Vec<ChannelInfo>> {
+    let url = build_search_url(query, "channel");
+    let html = fetch_youtube_html(&url).await?;
+    let data = extract_yt_initial_data(&html)?;
+    let results = parse_channel_results(&data, limit);
+
+    if results.is_empty() {
+        return Err(YtChillError::NoResults);
+    }
+
+    Ok(results)
+}
+
+/// Fetch recent videos from a channel
+pub async fn fetch_channel_videos(channel_handle: &str, limit: usize) -> Result<Vec<Video>> {
+    use crate::storage::cache::{get_cache_key, get_cached, set_cache};
+
+    // Generate cache key
+    let cache_key = get_cache_key(&format!("channel:{}:{}", channel_handle, limit));
+
+    // Check cache first
+    if let Some(cached) = get_cached::<Vec<Video>>(&cache_key).await {
+        return Ok(cached);
+    }
+
+    // Build channel URL - search for channel videos
+    let search_query = format!("{} ", channel_handle);
+    let url = build_search_url(&search_query, "video");
+    let html = fetch_youtube_html(&url).await?;
+    let data = extract_yt_initial_data(&html)?;
+    let results = parse_search_results(&data, limit);
+
+    // Cache results
+    if !results.is_empty() {
+        let _ = set_cache(&cache_key, &results).await;
     }
 
     Ok(results)
@@ -171,3 +285,4 @@ mod tests {
         assert!(url.contains("sp=EgIQAQ"));
     }
 }
+

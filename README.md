@@ -4,7 +4,7 @@ YouTube audio in your terminal. Clean and distraction-free.
 
 ## What it does
 
-Search YouTube, pick a video, and it starts streaming audio immediately. No menus, no fuss.
+Search YouTube, pick a video, and it starts streaming audio immediately. No menus, no fuss. Results are cached for an hour so repeat searches are instant.
 
 ## Quick Start
 
@@ -42,6 +42,8 @@ While playing:
 | `--video` | Include video (audio-only by default) |
 | `-d, --download` | Download instead of streaming |
 | `--history` | Browse watch history |
+| `-s, --subscribe` | Add a channel to subscriptions |
+| `-F, --feed` | View videos from subscribed channels |
 | `--syncplay` | Watch with friends via syncplay |
 | `-l, --limit <N>` | Limit search results (default: 15) |
 | `--copy-url` | Display the video link |
@@ -84,4 +86,4 @@ This project was built entirely with AI pair programming. The code, architecture
 
 ## License
 
-MIT — do whatever you want with it.
+MIT — I'd prefer pull requests to this repo, but do whatever you want with it.
