@@ -2,6 +2,7 @@
 
 use crate::error::{Result, YtChillError};
 use crate::types::DownloadOptions;
+use crate::utils::process::is_command_available;
 use indicatif::{ProgressBar, ProgressStyle};
 use tokio::process::Command;
 
@@ -56,14 +57,4 @@ pub async fn download(url: &str, options: &DownloadOptions) -> Result<()> {
 
     println!("✓ Download complete!");
     Ok(())
-}
-
-/// Check if a command is available in PATH
-async fn is_command_available(cmd: &str) -> bool {
-    Command::new("which")
-        .arg(cmd)
-        .output()
-        .await
-        .map(|o| o.status.success())
-        .unwrap_or(false)
 }

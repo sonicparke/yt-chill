@@ -4,6 +4,7 @@ use crate::types::MenuItem;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+#[derive(Default)]
 pub struct FzfSelector;
 
 impl FzfSelector {

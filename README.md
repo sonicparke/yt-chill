@@ -25,6 +25,7 @@ yt-chill -d "song name"          # Download as MP3
 yt-chill -d --video "tutorial"   # Download as MP4
 yt-chill --history               # Replay from history
 yt-chill -e                      # Edit config
+
 ```
 
 ## Keyboard Controls
@@ -46,7 +47,6 @@ While playing:
 | `-F, --feed` | View videos from subscribed channels |
 | `--syncplay` | Watch with friends via syncplay |
 | `-l, --limit <N>` | Limit search results (default: 15) |
-| `--copy-url` | Display the video link |
 | `-e, --edit` | Edit config file |
 
 ## Requirements

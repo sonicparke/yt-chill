@@ -2,6 +2,7 @@
 
 use crate::error::{Result, YtChillError};
 use crate::types::PlayOptions;
+use crate::utils::process::is_command_available;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
@@ -61,13 +62,10 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
     playing_msg_handle.abort();
 
     if !status.success() {
-        // Don't treat user quit (q key) as an error
-        if status.code() != Some(4) {
-            return Err(YtChillError::Spawn(format!(
-                "mpv exited with code: {:?}",
-                status.code()
-            )));
-        }
+        return Err(YtChillError::Spawn(format!(
+            "mpv exited with code: {:?}",
+            status.code()
+        )));
     }
 
     // Clear line and show goodbye
@@ -97,14 +95,4 @@ pub async fn play_with_syncplay(url: &str) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Check if a command is available in PATH
-async fn is_command_available(cmd: &str) -> bool {
-    Command::new("which")
-        .arg(cmd)
-        .output()
-        .await
-        .map(|o| o.status.success())
-        .unwrap_or(false)
 }

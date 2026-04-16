@@ -2,8 +2,18 @@
 
 use crate::error::{Result, YtChillError};
 use crate::types::Video;
+use std::sync::LazyLock;
+use std::time::Duration;
 
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(Duration::from_secs(15))
+        .build()
+        .expect("failed to build reqwest client")
+});
 
 /// Build YouTube search URL
 fn build_search_url(query: &str, filter: &str) -> String {
@@ -21,10 +31,8 @@ fn build_search_url(query: &str, filter: &str) -> String {
 
 /// Fetch YouTube HTML with browser-like headers
 async fn fetch_youtube_html(url: &str) -> Result<String> {
-    let client = reqwest::Client::new();
-    let response = client
+    let response = CLIENT
         .get(url)
-        .header("User-Agent", USER_AGENT)
         .header("Accept-Language", "en-US,en;q=0.9")
         .send()
         .await?;

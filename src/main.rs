@@ -17,6 +17,7 @@ use crate::storage::{config, history::History};
 use crate::types::{AppState, DownloadOptions, MenuItem, PlayOptions, Video};
 use crate::ui::selector::{create_selector, detect_selector};
 use crate::utils::paths::{ensure_app_dirs, get_history_path};
+use crate::utils::process::is_command_available;
 
 /// YouTube audio in your terminal. Clean and distraction-free.
 #[derive(Parser, Debug)]
@@ -55,10 +56,6 @@ struct Cli {
     #[arg(short, long, default_value = "15")]
     limit: usize,
 
-    /// Copy or display the video link
-    #[arg(long)]
-    copy_url: bool,
-
     /// Edit the configuration file
     #[arg(short, long)]
     edit: bool,
@@ -91,6 +88,44 @@ fn determine_initial_state(cli: &Cli) -> AppState {
     AppState::Init
 }
 
+/// Platform-specific install hint for missing external dependencies.
+fn install_hint() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "brew install mpv yt-dlp"
+    } else if cfg!(target_os = "linux") {
+        "apt install mpv yt-dlp  (or your distro's equivalent)"
+    } else {
+        "install mpv and yt-dlp from your package manager"
+    }
+}
+
+/// Fail fast if required external binaries are missing.
+async fn check_external_deps(cli: &Cli) -> anyhow::Result<()> {
+    let mut missing: Vec<&str> = Vec::new();
+
+    if !is_command_available("mpv").await {
+        missing.push("mpv");
+    }
+    if cli.download && !is_command_available("yt-dlp").await {
+        missing.push("yt-dlp");
+    }
+    if cli.syncplay && !is_command_available("syncplay").await {
+        missing.push("syncplay");
+    }
+
+    if !missing.is_empty() {
+        eprintln!(
+            "{} Missing required dependencies: {}",
+            "Error:".red(),
+            missing.join(", ").yellow()
+        );
+        eprintln!("  Install with: {}", install_hint().cyan());
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -104,6 +139,9 @@ async fn main() -> anyhow::Result<()> {
         config::edit_config(&cfg.editor).await?;
         return Ok(());
     }
+
+    // Fail fast if required external tools are missing.
+    check_external_deps(&cli).await?;
 
     // Load config
     let cfg = config::load_config().await?;
@@ -308,13 +346,6 @@ async fn main() -> anyhow::Result<()> {
 
                 // Add to history
                 history.add(video).await?;
-
-                // Handle copy URL option
-                if cli.copy_url {
-                    println!("{} {}", "Video URL:".green(), url);
-                    state = AppState::Exit;
-                    continue;
-                }
 
                 // Determine action based on flags (no menu)
                 let action = if cli.download {

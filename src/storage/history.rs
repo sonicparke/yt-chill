@@ -23,7 +23,11 @@ impl History {
         }
     }
 
-    /// Load history from file
+    /// Load history from file.
+    ///
+    /// If the file exists but fails to parse, back it up with a timestamped
+    /// suffix (so the user can recover it) and start with an empty history
+    /// instead of silently wiping the file on next save.
     pub async fn load(&mut self) -> Result<()> {
         if !self.path.exists() {
             self.entries = Vec::new();
@@ -31,7 +35,23 @@ impl History {
         }
 
         let content = fs::read_to_string(&self.path).await?;
-        self.entries = serde_json::from_str(&content).unwrap_or_default();
+        match serde_json::from_str::<Vec<HistoryEntry>>(&content) {
+            Ok(entries) => {
+                self.entries = entries;
+            }
+            Err(err) => {
+                let ts = Utc::now().timestamp();
+                let backup = self.path.with_extension(format!("json.corrupt-{}", ts));
+                eprintln!(
+                    "Warning: history file at {} is corrupt ({}). Backed up to {} and starting fresh.",
+                    self.path.display(),
+                    err,
+                    backup.display()
+                );
+                let _ = fs::rename(&self.path, &backup).await;
+                self.entries = Vec::new();
+            }
+        }
         Ok(())
     }
 

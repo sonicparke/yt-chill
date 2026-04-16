@@ -44,12 +44,6 @@ pub fn get_config_path() -> String {
     format!("{}/config.json", get_config_dir())
 }
 
-/// Get subscriptions file path
-#[allow(dead_code)]
-pub fn get_subscriptions_path() -> String {
-    format!("{}/subscriptions.txt", get_config_dir())
-}
-
 /// Ensure a directory exists
 pub async fn ensure_dir(path: &str) -> Result<()> {
     fs::create_dir_all(path).await?;

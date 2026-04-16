@@ -3,6 +3,7 @@
 use crate::types::MenuItem;
 use dialoguer::{theme::ColorfulTheme, Select};
 
+#[derive(Default)]
 pub struct DialoguerSelector;
 
 impl DialoguerSelector {

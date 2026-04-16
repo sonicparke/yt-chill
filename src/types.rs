@@ -82,6 +82,7 @@ pub enum SelectorType {
 
 /// User configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// Search result limit (default: 15)
     pub limit: usize,

@@ -7,37 +7,37 @@ use std::path::Path;
 use tokio::fs;
 use tokio::process::Command;
 
-/// Load configuration from file, merging with defaults
+/// Load configuration from file, merging with defaults.
+///
+/// Missing or extra fields in the user's config are tolerated via
+/// `#[serde(default)]` on `Config`.
 pub async fn load_config() -> Result<Config> {
     let config_path = get_config_path();
 
-    if !Path::new(&config_path).exists() {
-        return Ok(Config::default());
-    }
+    let mut config = if Path::new(&config_path).exists() {
+        let content = fs::read_to_string(&config_path).await?;
+        serde_json::from_str::<Config>(&content)?
+    } else {
+        Config::default()
+    };
 
-    let content = fs::read_to_string(&config_path).await?;
-    let user_config: Config = serde_json::from_str(&content)?;
+    config.download_dir = resolve_download_dir(&config.download_dir);
 
-    // Merge with defaults (user config takes precedence)
-    let mut config = Config::default();
-    config.limit = user_config.limit;
-    config.video_mode = user_config.video_mode;
-    config.max_history_entries = user_config.max_history_entries;
-    config.editor = user_config.editor;
-    config.player = user_config.player;
-    config.selector = user_config.selector;
-    config.notify = user_config.notify;
+    Ok(config)
+}
 
-    // Set download_dir with default if empty
-    config.download_dir = if user_config.download_dir.is_empty() {
+/// Resolve `download_dir`: fall back to the platform default when empty,
+/// then expand any leading `~`.
+fn resolve_download_dir(raw: &str) -> String {
+    let base = if raw.is_empty() {
         dirs::download_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| "~/Downloads".into())
     } else {
-        user_config.download_dir
+        raw.to_string()
     };
 
-    Ok(config)
+    shellexpand::tilde(&base).into_owned()
 }
 
 /// Save configuration to file
