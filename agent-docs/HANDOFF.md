@@ -2,7 +2,7 @@
 
 Living tracker of which items from [REFINEMENT.md](REFINEMENT.md) are done, in-flight, or deferred. Update this file at the end of every session.
 
-**Last updated:** 2026-04-18 (Waves A–D: cache/parsers, PATH, docs, tracing, config, state loop, dyn selector)
+**Last updated:** 2026-04-19 (test expansion + TUI polish orchestration)
 **Current branch:** `main` (all pushed to `origin/main`)
 
 ---
@@ -17,6 +17,25 @@ Living tracker of which items from [REFINEMENT.md](REFINEMENT.md) are done, in-f
 ---
 
 ## Completed
+
+### Session 2026-04-19 — Test expansion + TUI polish
+
+Executed in one workspace per [TEST_EXPANSION_AUTONOMOUS_ORCHESTRATION_PROMPT.md](TEST_EXPANSION_AUTONOMOUS_ORCHESTRATION_PROMPT.md) and [TUI_POLISH_AUTONOMOUS_ORCHESTRATION_PROMPT.md](TUI_POLISH_AUTONOMOUS_ORCHESTRATION_PROMPT.md) (no separate worktrees).
+
+**Test expansion**
+
+- **S1:** Extra unit coverage in [`src/storage/cache.rs`](../src/storage/cache.rs), [`src/storage/config.rs`](../src/storage/config.rs), [`src/utils/process.rs`](../src/utils/process.rs) (PATH trimming, non-executable files on Unix, Windows `PATH` separator test).
+- **S2:** Parser/tracing regressions in [`src/core/youtube.rs`](../src/core/youtube.rs): JSON parse failure logs, skip video rows without `videoId`, skip channel rows with no handle.
+- **S3:** [`src/utils/flow.rs`](../src/utils/flow.rs) — `next_state_after_play` extracted and covered by tests; [`src/main.rs`](../src/main.rs) uses it after playback.
+
+**TUI polish**
+
+- **T1:** Clearer menu labels, prompts, and status copy in [`src/main.rs`](../src/main.rs) (main menu, search/history/feed/subscribe flows, maintenance messages).
+- **T2:** Dialoguer selector left on the stable `Select` API (dialoguer 0.11 has no `with_page_size`); no behavioral regression.
+- **T3:** [`src/ui/fzf.rs`](../src/ui/fzf.rs) — aligned prompt (`›`), explicit `--layout reverse`, `--info inline`.
+- **T4:** [`src/core/player.rs`](../src/core/player.rs) — calmer “Connecting…”, playback hint, and exit line.
+
+**Verification:** `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` — **52** unit tests (was 40).
 
 ### Session 2026-04-18 — Waves A–D (HANDOFF 11, 14, 15, 18, 19, 23, 27–29, 35–37)
 

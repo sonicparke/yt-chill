@@ -16,6 +16,7 @@ use crate::core::{downloader, player, youtube};
 use crate::storage::{config, history::History};
 use crate::types::{AppState, Config, DownloadOptions, MenuItem, PlayOptions, Video};
 use crate::ui::selector::{create_selector, detect_selector};
+use crate::utils::flow::next_state_after_play;
 use crate::utils::paths::{ensure_app_dirs, get_history_path};
 use crate::utils::playback::use_syncplay;
 use crate::utils::process::is_command_available;
@@ -96,7 +97,10 @@ fn prompt_nonempty(prompt: &str) -> anyhow::Result<String> {
         if !trimmed.is_empty() {
             return Ok(trimmed.to_string());
         }
-        println!("{}", "Please enter something (Ctrl-C to cancel).".yellow());
+        println!(
+            "{}",
+            "That was empty — try again, or press Ctrl-C to cancel.".yellow()
+        );
     }
 }
 
@@ -200,7 +204,9 @@ async fn main() -> anyhow::Result<()> {
         use crate::storage::subscriptions::load_subscriptions;
         let subs = load_subscriptions().await?;
         if subs.is_empty() {
-            println!("No subscriptions yet.");
+            println!(
+                "No subscriptions yet. Use --subscribe or choose “Subscribe to a channel” in the menu."
+            );
         } else {
             for sub in &subs {
                 println!("{}  {}", sub.handle.cyan(), sub.name.dimmed());
@@ -213,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
         use crate::storage::subscriptions::{load_subscriptions, remove_subscription};
         let subs = load_subscriptions().await?;
         if subs.is_empty() {
-            println!("No subscriptions to remove.");
+            println!("Nothing to remove — you have no subscriptions yet.");
             return Ok(());
         }
 
@@ -226,18 +232,18 @@ async fn main() -> anyhow::Result<()> {
             })
             .collect();
 
-        if let Some(chosen) = selector.select(&menu_items, "Remove subscription") {
+        if let Some(chosen) = selector.select(&menu_items, "Pick a subscription to remove") {
             remove_subscription(&chosen.handle).await?;
             println!("{} Removed {}", "✓".green(), chosen.name);
         } else {
-            println!("{}", "No subscription selected.".dimmed());
+            println!("{}", "Removal cancelled.".dimmed());
         }
         return Ok(());
     }
 
     if cli.clear_cache {
         crate::storage::cache::clear_cache().await?;
-        println!("{}", "Cache cleared.".green());
+        println!("{}", "Search and feed cache cleared.".green());
         return Ok(());
     }
 
@@ -246,7 +252,7 @@ async fn main() -> anyhow::Result<()> {
         let mut history = History::new(&get_history_path(), cfg.max_history_entries);
         history.load().await?;
         history.clear().await?;
-        println!("{}", "History cleared.".green());
+        println!("{}", "Watch history cleared.".green());
         return Ok(());
     }
 
@@ -274,36 +280,36 @@ async fn main() -> anyhow::Result<()> {
                 // Show main menu
                 let menu_items = vec![
                     MenuItem {
-                        label: "🔍 Search YouTube".into(),
+                        label: "Search YouTube".into(),
                         value: AppState::Search,
                     },
                     MenuItem {
-                        label: "📜 View your history".into(),
+                        label: "Watch history".into(),
                         value: AppState::History,
                     },
                     MenuItem {
-                        label: "➕ Add subscription".into(),
+                        label: "Subscribe to a channel".into(),
                         value: AppState::Subscribe,
                     },
                     MenuItem {
-                        label: "📺 View your feed".into(),
+                        label: "Subscription feed".into(),
                         value: AppState::Feed,
                     },
                 ];
 
                 state = selector
-                    .select(&menu_items, "Select Action")
+                    .select(&menu_items, "What would you like to do?")
                     .unwrap_or(AppState::Exit);
             }
 
             AppState::Search => {
                 let search_query = if query.is_empty() {
-                    prompt_nonempty("Search YouTube")?
+                    prompt_nonempty("YouTube search")?
                 } else {
                     query.clone()
                 };
 
-                println!("{}", "Searching...".dimmed());
+                println!("{}", "Searching…".dimmed());
                 match youtube::search_videos(&search_query, cli.limit).await {
                     Ok(videos) => {
                         let menu_items: Vec<MenuItem<Video>> = videos
@@ -314,7 +320,7 @@ async fn main() -> anyhow::Result<()> {
                             })
                             .collect();
 
-                        selected_video = selector.select(&menu_items, "Select Video");
+                        selected_video = selector.select(&menu_items, "Pick a video");
                         state = if selected_video.is_some() {
                             AppState::Play
                         } else {
@@ -332,7 +338,10 @@ async fn main() -> anyhow::Result<()> {
                 let entries = history.get_all();
 
                 if entries.is_empty() {
-                    println!("{}", "No history yet.".yellow());
+                    println!(
+                        "{}",
+                        "No watch history yet — play something from Search first.".yellow()
+                    );
                     state = AppState::Exit;
                     continue;
                 }
@@ -345,7 +354,7 @@ async fn main() -> anyhow::Result<()> {
                     })
                     .collect();
 
-                selected_video = selector.select(&menu_items, "Select from History");
+                selected_video = selector.select(&menu_items, "Pick a history entry");
                 state = if selected_video.is_some() {
                     AppState::Play
                 } else {
@@ -362,16 +371,15 @@ async fn main() -> anyhow::Result<()> {
                 if subs.is_empty() {
                     println!(
                         "{}",
-                        "No subscriptions yet. Use --subscribe to add channels.".yellow()
+                        "No subscriptions yet. Use --subscribe or the menu item above.".yellow()
                     );
                     state = AppState::Exit;
                     continue;
                 }
 
                 println!(
-                    "{} {} subscriptions",
-                    "Loading feed from".dimmed(),
-                    subs.len()
+                    "{}",
+                    format!("Loading videos from {} subscriptions…", subs.len()).dimmed()
                 );
 
                 let mut set: tokio::task::JoinSet<(String, crate::error::Result<Vec<Video>>)> =
@@ -399,7 +407,10 @@ async fn main() -> anyhow::Result<()> {
                 }
 
                 if all_videos.is_empty() {
-                    println!("{}", "No videos found in your feed.".yellow());
+                    println!(
+                        "{}",
+                        "No videos loaded — check your connection or try again later.".yellow()
+                    );
                     state = AppState::Exit;
                     continue;
                 }
@@ -413,7 +424,7 @@ async fn main() -> anyhow::Result<()> {
                     })
                     .collect();
 
-                selected_video = selector.select(&menu_items, "Select from Feed");
+                selected_video = selector.select(&menu_items, "Pick a feed video");
                 state = if selected_video.is_some() {
                     AppState::Play
                 } else {
@@ -427,9 +438,9 @@ async fn main() -> anyhow::Result<()> {
 
                 // Prompt for channel search (re-prompts on empty input;
                 // Ctrl-C exits cleanly via `?`).
-                let search_query = prompt_nonempty("Search for channel")?;
+                let search_query = prompt_nonempty("Channel name or topic")?;
 
-                println!("{}", "Searching for channels...".dimmed());
+                println!("{}", "Searching for channels…".dimmed());
                 match youtube::search_channels(&search_query, 10).await {
                     Ok(channels) => {
                         let menu_items: Vec<MenuItem<youtube::ChannelInfo>> = channels
@@ -440,7 +451,7 @@ async fn main() -> anyhow::Result<()> {
                             })
                             .collect();
 
-                        if let Some(channel) = selector.select(&menu_items, "Select Channel") {
+                        if let Some(channel) = selector.select(&menu_items, "Pick a channel") {
                             let sub = Subscription {
                                 name: channel.name.clone(),
                                 handle: channel.handle.clone(),
@@ -483,7 +494,7 @@ async fn main() -> anyhow::Result<()> {
                     "stream" // Default: just play
                 };
 
-                println!("{} {}", "Playing:".dimmed(), video.title);
+                println!("{} {}", "Now playing:".dimmed(), video.title);
 
                 let mut play_ok = true;
                 match action {
@@ -525,11 +536,7 @@ async fn main() -> anyhow::Result<()> {
                     _ => {}
                 }
 
-                state = if play_ok {
-                    AppState::Init
-                } else {
-                    AppState::Exit
-                };
+                state = next_state_after_play(play_ok);
             }
 
             AppState::Exit => break,

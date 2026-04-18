@@ -1,4 +1,7 @@
-//! dialoguer selector implementation (fallback)
+//! dialoguer selector implementation (fallback).
+//!
+//! Uses the stock [`Select`] API from dialoguer 0.11 (no built-in paging helper).
+//! Long lists still work; scrolling is handled by the terminal/dialoguer defaults.
 
 use crate::types::MenuItem;
 use dialoguer::{Select, theme::ColorfulTheme};

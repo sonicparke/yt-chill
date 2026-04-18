@@ -105,6 +105,13 @@ mod tests {
     }
 
     #[test]
+    fn cache_key_empty_string_is_stable_hex() {
+        let k = get_cache_key("");
+        assert_eq!(k.len(), 64);
+        assert_eq!(k, get_cache_key(""));
+    }
+
+    #[test]
     fn fresh_entry_is_not_expired() {
         let now = 1_000_000i64;
         assert!(!is_expired(now, 3600, now));

@@ -120,4 +120,48 @@ mod tests {
             vec!["/a".to_string(), "/b".to_string()]
         );
     }
+
+    #[test]
+    fn split_path_var_trims_whitespace() {
+        assert_eq!(
+            split_path_var(" /tmp/foo : /usr/bin "),
+            vec!["/tmp/foo".to_string(), "/usr/bin".to_string()]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn split_path_var_uses_semicolon_on_windows() {
+        assert_eq!(
+            split_path_var(r"C:\a;C:\b"),
+            vec![r"C:\a".to_string(), r"C:\b".to_string()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_ignores_non_executable_file() {
+        use std::fs::OpenOptions;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let tmp = std::env::temp_dir();
+        let name = format!(
+            "yt_chill_nonexec_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let path = tmp.join(&name);
+        OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o644)
+            .open(&path)
+            .unwrap();
+        let entries = vec![tmp.to_string_lossy().into_owned()];
+        assert!(resolve_executable_in_path(&name, &entries).is_none());
+        let _ = std::fs::remove_file(&path);
+    }
 }

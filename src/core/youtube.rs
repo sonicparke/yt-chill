@@ -663,4 +663,57 @@ mod tests {
         let _ = extract_yt_initial_data("plain text without marker");
         assert!(logs_contain("yt_initial_data_regex_miss"));
     }
+
+    #[traced_test]
+    #[test]
+    fn extract_yt_initial_data_emits_debug_on_json_error() {
+        let html = r#"<script>var ytInitialData = not_valid_json;</script>"#;
+        let err = extract_yt_initial_data(html).unwrap_err();
+        assert!(err.to_string().contains("parse"), "unexpected error: {err}");
+        assert!(logs_contain("yt_initial_data_json_error"));
+    }
+
+    #[test]
+    fn parse_search_results_skips_video_renderer_without_id() {
+        let mut data = make_search_fixture();
+        let good = data["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]
+            ["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]["contents"][0]
+            .clone();
+        data["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]["sectionListRenderer"]
+            ["contents"][0]["itemSectionRenderer"]["contents"] = json!([
+            json!({"videoRenderer": {
+                "title": {"runs": [{"text": "Missing id"}]},
+                "longBylineText": {"runs": [{"text": "x"}]}
+            }}),
+            good
+        ]);
+        let videos = parse_search_results(&data, 10);
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].id, "abc123");
+    }
+
+    #[test]
+    fn parse_channel_results_skips_channel_renderer_without_handle() {
+        let data = json!({
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "itemSectionRenderer": {
+                                    "contents": [{
+                                        "channelRenderer": {
+                                            "title": {"simpleText": "No id or url"},
+                                            "subscriberCountText": {"simpleText": "1"}
+                                        }
+                                    }]
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        });
+        assert!(parse_channel_results(&data, 10).is_empty());
+    }
 }

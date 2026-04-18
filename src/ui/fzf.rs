@@ -34,11 +34,14 @@ impl FzfSelector {
         let mut child = Command::new("fzf")
             .args([
                 "--prompt",
-                &format!("{} > ", prompt),
+                &format!("{} › ", prompt),
                 "--height",
                 "40%",
-                "--reverse",
+                "--layout",
+                "reverse",
                 "--ansi",
+                "--info",
+                "inline",
                 "--delimiter",
                 "\t",
                 "--with-nth",

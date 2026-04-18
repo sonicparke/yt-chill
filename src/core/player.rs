@@ -42,7 +42,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
             .unwrap()
             .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
     );
-    spinner.set_message("Buffering...");
+    spinner.set_message("Connecting…");
     spinner.enable_steady_tick(Duration::from_millis(80));
 
     // After ~6s (typical time-to-first-byte for mpv+ytdl), swap the spinner
@@ -52,7 +52,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
     let vibing_handle = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(6)).await;
         vibing_spinner.finish_and_clear();
-        println!("🎵 Vibing... Sit back and chill. (space=pause, q=quit)");
+        println!("🎵 Playing — space pauses, q quits.");
     });
 
     // Spawn mpv with inherited stdio so keyboard controls work
@@ -78,7 +78,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
         )));
     }
 
-    println!("👋 Thanks for chilling.");
+    println!("👋 Playback finished. Thanks for chilling.");
 
     Ok(())
 }

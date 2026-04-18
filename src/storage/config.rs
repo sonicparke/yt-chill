@@ -109,4 +109,41 @@ mod tests {
         assert_eq!(cfg.limit, 3);
         Ok(())
     }
+
+    #[test]
+    fn legacy_rofi_mixed_case_maps_to_dialoguer() -> Result<()> {
+        let mut v: serde_json::Value =
+            serde_json::from_str(r#"{"selector": "RoFi", "player": "mpv"}"#).unwrap();
+        normalize_selector_in_json(&mut v);
+        let cfg: Config = serde_json::from_value(v)?;
+        assert_eq!(cfg.selector, SelectorType::Dialoguer);
+        Ok(())
+    }
+
+    #[test]
+    fn normalize_selector_leaves_fzf_unchanged() -> Result<()> {
+        let mut v: serde_json::Value =
+            serde_json::from_str(r#"{"selector": "fzf", "limit": 1}"#).unwrap();
+        normalize_selector_in_json(&mut v);
+        let cfg: Config = serde_json::from_value(v)?;
+        assert_eq!(cfg.selector, SelectorType::Fzf);
+        assert_eq!(cfg.limit, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn normalize_selector_ignores_non_string_selector() {
+        let mut v: serde_json::Value =
+            serde_json::from_str(r#"{"selector": 42, "limit": 5}"#).unwrap();
+        normalize_selector_in_json(&mut v);
+        assert_eq!(v["selector"], serde_json::json!(42));
+    }
+
+    #[test]
+    fn minimal_json_uses_defaults_for_missing_fields() -> Result<()> {
+        let cfg: Config = serde_json::from_str(r#"{"limit": 4}"#)?;
+        assert_eq!(cfg.limit, 4);
+        assert_eq!(cfg.selector, SelectorType::default());
+        Ok(())
+    }
 }
