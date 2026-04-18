@@ -98,7 +98,6 @@ pub async fn add_subscription(subscription: &Subscription) -> Result<()> {
 }
 
 /// Remove a subscription by handle.
-#[allow(dead_code)]
 pub async fn remove_subscription(handle: &str) -> Result<()> {
     let mut subs = load_subscriptions().await?;
     subs.retain(|s| s.handle != handle);

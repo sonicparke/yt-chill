@@ -64,7 +64,6 @@ pub async fn set_cache<T: serde::Serialize>(key: &str, data: &T) -> Result<()> {
 }
 
 /// Clear all cache
-#[allow(dead_code)]
 pub async fn clear_cache() -> Result<()> {
     let cache_dir = get_cache_dir();
     if PathBuf::from(&cache_dir).exists() {

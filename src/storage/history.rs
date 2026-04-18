@@ -92,7 +92,6 @@ impl History {
     }
 
     /// Clear all history
-    #[allow(dead_code)]
     pub async fn clear(&mut self) -> Result<()> {
         self.entries.clear();
         if self.path.exists() {
