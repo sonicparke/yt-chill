@@ -8,7 +8,7 @@ use tokio::process::Command;
 
 /// Download audio/video using yt-dlp
 pub async fn download(url: &str, options: &DownloadOptions) -> Result<()> {
-    if !is_command_available("yt-dlp").await {
+    if !is_command_available("yt-dlp") {
         return Err(YtChillError::MissingDependency("yt-dlp".into()));
     }
 

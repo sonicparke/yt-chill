@@ -9,12 +9,16 @@ Search YouTube, pick a video, and it starts streaming audio immediately. No menu
 ## Quick Start
 
 ```bash
-# Install
+# Install from a git checkout (recommended while crates.io publishing is unsettled)
 cargo install --path .
 
 # Play some lofi
 yt-chill "lofi beats"
 ```
+
+### crates.io
+
+This crate is **not published on crates.io** yet; install with `cargo install --path .` or `cargo install --git https://github.com/sonicparke/yt-chill-rs` once you pick a revision.
 
 ## Usage
 
@@ -45,9 +49,10 @@ While playing:
 | `--history` | Browse watch history |
 | `-s, --subscribe` | Add a channel to subscriptions |
 | `-F, --feed` | View videos from subscribed channels |
-| `--syncplay` | Watch with friends via syncplay |
+| `--syncplay` | Watch with friends via Syncplay (see **Syncplay** below) |
 | `-l, --limit <N>` | Limit search results (default: 15) |
 | `-e, --edit` | Edit config file |
+| `-v, --verbose` | Verbose logs (YouTube parse diagnostics on stderr) |
 
 ## Requirements
 
@@ -75,10 +80,19 @@ Stored at `~/.config/yt-chill/config.json`:
   "max_history_entries": 100,
   "editor": "nvim",
   "player": "mpv",
-  "selector": "fzf",
-  "notify": true
+  "selector": "fzf"
 }
 ```
+
+Legacy configs may still contain a `"selector": "rofi"` entry; that value is mapped to the dialoguer-based selector on load. Unknown fields (for example an old `"notify"` key) are ignored by serde.
+
+### Syncplay
+
+Playback uses Syncplay when **either** you pass `--syncplay` **or** you set `"player": "syncplay"` in config. Otherwise streams use `mpv` (or download mode uses `yt-dlp`).
+
+### Security
+
+The `editor` command runs arbitrary programs—see [SECURITY.md](SECURITY.md).
 
 ## About
 

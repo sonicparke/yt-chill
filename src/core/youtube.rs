@@ -54,13 +54,25 @@ async fn fetch_youtube_html(url: &str) -> Result<String> {
 
 /// Extract ytInitialData JSON from YouTube HTML
 fn extract_yt_initial_data(html: &str) -> Result<serde_json::Value> {
-    let captures = YT_INITIAL_DATA_RE
-        .captures(html)
-        .ok_or_else(|| YtChillError::YouTubeParse("Failed to find ytInitialData".into()))?;
+    let Some(captures) = YT_INITIAL_DATA_RE.captures(html) else {
+        tracing::debug!(
+            target: "yt_chill",
+            "yt_initial_data_regex_miss (html_len={})",
+            html.len()
+        );
+        return Err(YtChillError::YouTubeParse(
+            "Failed to find ytInitialData".into(),
+        ));
+    };
 
     let json_str = captures.get(1).unwrap().as_str();
-    serde_json::from_str(json_str)
-        .map_err(|e| YtChillError::YouTubeParse(format!("Failed to parse ytInitialData: {}", e)))
+    serde_json::from_str(json_str).map_err(|e| {
+        tracing::debug!(
+            target: "yt_chill",
+            "yt_initial_data_json_error error={e}"
+        );
+        YtChillError::YouTubeParse(format!("Failed to parse ytInitialData: {}", e))
+    })
 }
 
 /// Decode HTML entities in a string
@@ -68,20 +80,85 @@ fn decode_html_entities(s: &str) -> String {
     html_escape::decode_html_entities(s).to_string()
 }
 
+/// First `itemSectionRenderer.contents` array on a two-column **search**
+/// results page (video tab and channel tab share this outer shape).
+fn search_item_section_contents(data: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    data.get("contents")?
+        .get("twoColumnSearchResultsRenderer")?
+        .get("primaryContents")?
+        .get("sectionListRenderer")?
+        .get("contents")?
+        .get(0)?
+        .get("itemSectionRenderer")?
+        .get("contents")?
+        .as_array()
+}
+
+fn parse_video_renderer(v: &serde_json::Value) -> Option<Video> {
+    let id = v.get("videoId")?.as_str()?.to_string();
+    let title = v
+        .get("title")
+        .and_then(|t| t.get("runs"))
+        .and_then(|r| r.get(0))
+        .and_then(|r| r.get("text"))
+        .and_then(|t| t.as_str())
+        .map(decode_html_entities)
+        .unwrap_or_default();
+
+    let author = v
+        .get("longBylineText")
+        .and_then(|t| t.get("runs"))
+        .and_then(|r| r.get(0))
+        .and_then(|r| r.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let duration = v
+        .get("lengthText")
+        .and_then(|t| t.get("simpleText"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("LIVE")
+        .to_string();
+
+    let views = v
+        .get("viewCountText")
+        .and_then(|t| t.get("simpleText"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let published = v
+        .get("publishedTimeText")
+        .and_then(|t| t.get("simpleText"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let thumbnail = v
+        .get("thumbnail")
+        .and_then(|t| t.get("thumbnails"))
+        .and_then(|t| t.as_array())
+        .and_then(|t| t.last())
+        .and_then(|t| t.get("url"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Some(Video {
+        id,
+        title,
+        author,
+        duration,
+        views,
+        published,
+        thumbnail,
+    })
+}
+
 /// Parse video results from ytInitialData
 fn parse_search_results(data: &serde_json::Value, limit: usize) -> Vec<Video> {
-    let items = data
-        .get("contents")
-        .and_then(|c| c.get("twoColumnSearchResultsRenderer"))
-        .and_then(|r| r.get("primaryContents"))
-        .and_then(|p| p.get("sectionListRenderer"))
-        .and_then(|s| s.get("contents"))
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("itemSectionRenderer"))
-        .and_then(|i| i.get("contents"))
-        .and_then(|c| c.as_array());
-
-    let Some(items) = items else {
+    let Some(items) = search_item_section_contents(data) else {
         return Vec::new();
     };
 
@@ -89,66 +166,7 @@ fn parse_search_results(data: &serde_json::Value, limit: usize) -> Vec<Video> {
         .iter()
         .filter_map(|item| {
             let v = item.get("videoRenderer")?;
-
-            let id = v.get("videoId")?.as_str()?.to_string();
-            let title = v
-                .get("title")
-                .and_then(|t| t.get("runs"))
-                .and_then(|r| r.get(0))
-                .and_then(|r| r.get("text"))
-                .and_then(|t| t.as_str())
-                .map(decode_html_entities)
-                .unwrap_or_default();
-
-            let author = v
-                .get("longBylineText")
-                .and_then(|t| t.get("runs"))
-                .and_then(|r| r.get(0))
-                .and_then(|r| r.get("text"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let duration = v
-                .get("lengthText")
-                .and_then(|t| t.get("simpleText"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("LIVE")
-                .to_string();
-
-            let views = v
-                .get("viewCountText")
-                .and_then(|t| t.get("simpleText"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let published = v
-                .get("publishedTimeText")
-                .and_then(|t| t.get("simpleText"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let thumbnail = v
-                .get("thumbnail")
-                .and_then(|t| t.get("thumbnails"))
-                .and_then(|t| t.as_array())
-                .and_then(|t| t.last())
-                .and_then(|t| t.get("url"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            Some(Video {
-                id,
-                title,
-                author,
-                duration,
-                views,
-                published,
-                thumbnail,
-            })
+            parse_video_renderer(v)
         })
         .take(limit)
         .collect()
@@ -156,10 +174,9 @@ fn parse_search_results(data: &serde_json::Value, limit: usize) -> Vec<Video> {
 
 /// Search YouTube for videos (with caching)
 pub async fn search_videos(query: &str, limit: usize) -> Result<Vec<Video>> {
-    use crate::storage::cache::{get_cache_key, get_cached, set_cache};
+    use crate::storage::cache::{cache_key_video_search, get_cached, set_cache};
 
-    // Generate cache key from query + limit
-    let cache_key = get_cache_key(&format!("video:{}:{}", query, limit));
+    let cache_key = cache_key_video_search(query, limit);
 
     // Check cache first
     if let Some(cached) = get_cached::<Vec<Video>>(&cache_key).await {
@@ -189,20 +206,37 @@ pub struct ChannelInfo {
     pub handle: String,
 }
 
+fn parse_channel_renderer(c: &serde_json::Value) -> Option<ChannelInfo> {
+    let name = c
+        .get("title")
+        .and_then(|t| t.get("simpleText"))
+        .and_then(|t| t.as_str())
+        .map(decode_html_entities)
+        .unwrap_or_default();
+
+    // Prefer canonicalBaseUrl (e.g. "/@HandleName" or "/channel/UCxxxx").
+    // Fall back to a channel/{id} form if missing.
+    let handle = c
+        .get("canonicalBaseUrl")
+        .and_then(|u| u.as_str())
+        .map(|u| u.trim_start_matches('/').to_string())
+        .or_else(|| {
+            c.get("channelId")
+                .and_then(|id| id.as_str())
+                .map(|id| format!("channel/{}", id))
+        })
+        .unwrap_or_default();
+
+    if name.is_empty() || handle.is_empty() {
+        return None;
+    }
+
+    Some(ChannelInfo { name, handle })
+}
+
 /// Parse channel results from ytInitialData
 fn parse_channel_results(data: &serde_json::Value, limit: usize) -> Vec<ChannelInfo> {
-    let items = data
-        .get("contents")
-        .and_then(|c| c.get("twoColumnSearchResultsRenderer"))
-        .and_then(|r| r.get("primaryContents"))
-        .and_then(|p| p.get("sectionListRenderer"))
-        .and_then(|s| s.get("contents"))
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("itemSectionRenderer"))
-        .and_then(|i| i.get("contents"))
-        .and_then(|c| c.as_array());
-
-    let Some(items) = items else {
+    let Some(items) = search_item_section_contents(data) else {
         return Vec::new();
     };
 
@@ -210,32 +244,7 @@ fn parse_channel_results(data: &serde_json::Value, limit: usize) -> Vec<ChannelI
         .iter()
         .filter_map(|item| {
             let c = item.get("channelRenderer")?;
-
-            let name = c
-                .get("title")
-                .and_then(|t| t.get("simpleText"))
-                .and_then(|t| t.as_str())
-                .map(decode_html_entities)
-                .unwrap_or_default();
-
-            // Prefer canonicalBaseUrl (e.g. "/@HandleName" or "/channel/UCxxxx").
-            // Fall back to a channel/{id} form if missing.
-            let handle = c
-                .get("canonicalBaseUrl")
-                .and_then(|u| u.as_str())
-                .map(|u| u.trim_start_matches('/').to_string())
-                .or_else(|| {
-                    c.get("channelId")
-                        .and_then(|id| id.as_str())
-                        .map(|id| format!("channel/{}", id))
-                })
-                .unwrap_or_default();
-
-            if name.is_empty() || handle.is_empty() {
-                return None;
-            }
-
-            Some(ChannelInfo { name, handle })
+            parse_channel_renderer(c)
         })
         .take(limit)
         .collect()
@@ -388,9 +397,9 @@ fn parse_channel_videos_tab(
 
 /// Fetch recent videos from a channel's "Videos" tab.
 pub async fn fetch_channel_videos(channel_handle: &str, limit: usize) -> Result<Vec<Video>> {
-    use crate::storage::cache::{get_cache_key, get_cached, set_cache};
+    use crate::storage::cache::{cache_key_channel_videos, get_cached, set_cache};
 
-    let cache_key = get_cache_key(&format!("channel:{}:{}", channel_handle, limit));
+    let cache_key = cache_key_channel_videos(channel_handle, limit);
 
     if let Some(cached) = get_cached::<Vec<Video>>(&cache_key).await {
         return Ok(cached);
@@ -417,6 +426,7 @@ pub async fn fetch_channel_videos(channel_handle: &str, limit: usize) -> Result<
 mod tests {
     use super::*;
     use serde_json::json;
+    use tracing_test::traced_test;
 
     #[test]
     fn test_build_search_url() {
@@ -645,5 +655,12 @@ mod tests {
     #[test]
     fn parse_channel_videos_tab_empty_on_missing_structure() {
         assert!(parse_channel_videos_tab(&json!({}), 10, "@x").is_empty());
+    }
+
+    #[traced_test]
+    #[test]
+    fn extract_yt_initial_data_emits_debug_on_regex_miss() {
+        let _ = extract_yt_initial_data("plain text without marker");
+        assert!(logs_contain("yt_initial_data_regex_miss"));
     }
 }

@@ -3,9 +3,20 @@
 use crate::error::Result;
 use crate::types::Config;
 use crate::utils::paths::{ensure_dir, get_config_dir, get_config_path};
+use serde_json::json;
 use std::path::Path;
 use tokio::fs;
 use tokio::process::Command;
+
+/// Map legacy `selector` string values removed from [`crate::types::SelectorType`].
+fn normalize_selector_in_json(value: &mut serde_json::Value) {
+    if let Some(sel) = value.get_mut("selector")
+        && let Some(s) = sel.as_str()
+        && s.eq_ignore_ascii_case("rofi")
+    {
+        *sel = json!("dialoguer");
+    }
+}
 
 /// Load configuration from file, merging with defaults.
 ///
@@ -16,7 +27,9 @@ pub async fn load_config() -> Result<Config> {
 
     let mut config = if Path::new(&config_path).exists() {
         let content = fs::read_to_string(&config_path).await?;
-        serde_json::from_str::<Config>(&content)?
+        let mut raw: serde_json::Value = serde_json::from_str(&content)?;
+        normalize_selector_in_json(&mut raw);
+        serde_json::from_value(raw)?
     } else {
         Config::default()
     };
@@ -60,4 +73,40 @@ pub async fn edit_config(editor: &str) -> Result<()> {
     Command::new(editor).arg(&config_path).status().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::Result;
+    use crate::types::SelectorType;
+
+    #[test]
+    fn legacy_rofi_selector_maps_to_dialoguer() -> Result<()> {
+        let mut v: serde_json::Value =
+            serde_json::from_str(r#"{"selector": "rofi", "limit": 7}"#).unwrap();
+        normalize_selector_in_json(&mut v);
+        let cfg: Config = serde_json::from_value(v)?;
+        assert_eq!(cfg.selector, SelectorType::Dialoguer);
+        assert_eq!(cfg.limit, 7);
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_rofi_uppercase_maps_to_dialoguer() -> Result<()> {
+        let mut v: serde_json::Value = serde_json::from_str(r#"{"selector": "Rofi"}"#).unwrap();
+        normalize_selector_in_json(&mut v);
+        let cfg: Config = serde_json::from_value(v)?;
+        assert_eq!(cfg.selector, SelectorType::Dialoguer);
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_notify_field_is_ignored() -> Result<()> {
+        let cfg: Config = serde_json::from_str(
+            r#"{"notify": true, "limit": 3, "selector": "fzf", "player": "mpv"}"#,
+        )?;
+        assert_eq!(cfg.limit, 3);
+        Ok(())
+    }
 }

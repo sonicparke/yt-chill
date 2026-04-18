@@ -1,6 +1,7 @@
 //! fzf selector implementation
 
 use crate::types::MenuItem;
+use crate::utils::process::{resolve_executable_in_path, split_path_var};
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -76,10 +77,8 @@ impl FzfSelector {
     }
 
     pub fn is_available(&self) -> bool {
-        Command::new("which")
-            .arg("fzf")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        let path = std::env::var("PATH").unwrap_or_default();
+        let entries = split_path_var(&path);
+        resolve_executable_in_path("fzf", &entries).is_some()
     }
 }

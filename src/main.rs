@@ -14,9 +14,10 @@ use colored::Colorize;
 
 use crate::core::{downloader, player, youtube};
 use crate::storage::{config, history::History};
-use crate::types::{AppState, DownloadOptions, MenuItem, PlayOptions, Video};
+use crate::types::{AppState, Config, DownloadOptions, MenuItem, PlayOptions, Video};
 use crate::ui::selector::{create_selector, detect_selector};
 use crate::utils::paths::{ensure_app_dirs, get_history_path};
+use crate::utils::playback::use_syncplay;
 use crate::utils::process::is_command_available;
 
 /// YouTube audio in your terminal. Clean and distraction-free.
@@ -75,6 +76,10 @@ struct Cli {
     /// Clear watch history and exit
     #[arg(long)]
     clear_history: bool,
+
+    /// Verbose logging (YouTube parse diagnostics, etc.)
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 /// Prompt for a non-empty string, re-prompting on empty input.
@@ -134,16 +139,16 @@ fn install_hint() -> &'static str {
 }
 
 /// Fail fast if required external binaries are missing.
-async fn check_external_deps(cli: &Cli) -> anyhow::Result<()> {
+fn check_external_deps(cli: &Cli, cfg: &Config) {
     let mut missing: Vec<&str> = Vec::new();
 
-    if !is_command_available("mpv").await {
+    if !is_command_available("mpv") {
         missing.push("mpv");
     }
-    if cli.download && !is_command_available("yt-dlp").await {
+    if cli.download && !is_command_available("yt-dlp") {
         missing.push("yt-dlp");
     }
-    if cli.syncplay && !is_command_available("syncplay").await {
+    if use_syncplay(cli.syncplay, cfg.player) && !is_command_available("syncplay") {
         missing.push("syncplay");
     }
 
@@ -156,13 +161,28 @@ async fn check_external_deps(cli: &Cli) -> anyhow::Result<()> {
         eprintln!("  Install with: {}", install_hint().cyan());
         std::process::exit(1);
     }
+}
 
-    Ok(())
+fn init_tracing(verbose: bool) {
+    use tracing_subscriber::EnvFilter;
+
+    let filter = if verbose {
+        EnvFilter::new("yt_chill=debug")
+    } else {
+        EnvFilter::new("off")
+    };
+
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .try_init();
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    init_tracing(cli.verbose);
 
     // Ensure app directories exist
     ensure_app_dirs().await?;
@@ -230,11 +250,11 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Fail fast if required external tools are missing.
-    check_external_deps(&cli).await?;
-
-    // Load config
+    // Load config (needed for dependency checks and the main loop).
     let cfg = config::load_config().await?;
+
+    // Fail fast if required external tools are missing.
+    check_external_deps(&cli, &cfg);
 
     // Load history
     let mut history = History::new(&get_history_path(), cfg.max_history_entries);
@@ -457,7 +477,7 @@ async fn main() -> anyhow::Result<()> {
                 // Determine action based on flags (no menu)
                 let action = if cli.download {
                     "download"
-                } else if cli.syncplay {
+                } else if use_syncplay(cli.syncplay, cfg.player) {
                     "syncplay"
                 } else {
                     "stream" // Default: just play
@@ -465,6 +485,7 @@ async fn main() -> anyhow::Result<()> {
 
                 println!("{} {}", "Playing:".dimmed(), video.title);
 
+                let mut play_ok = true;
                 match action {
                     "stream" => {
                         let opts = PlayOptions {
@@ -472,6 +493,7 @@ async fn main() -> anyhow::Result<()> {
                             format: None,
                         };
                         if let Err(e) = player::play(&url, &opts).await {
+                            play_ok = false;
                             eprintln!("{} {}", "Error:".red(), e);
                         }
                     }
@@ -490,18 +512,24 @@ async fn main() -> anyhow::Result<()> {
                             output_dir: download_dir,
                         };
                         if let Err(e) = downloader::download(&url, &opts).await {
+                            play_ok = false;
                             eprintln!("{} {}", "Error:".red(), e);
                         }
                     }
                     "syncplay" => {
                         if let Err(e) = player::play_with_syncplay(&url).await {
+                            play_ok = false;
                             eprintln!("{} {}", "Error:".red(), e);
                         }
                     }
                     _ => {}
                 }
 
-                state = AppState::Exit;
+                state = if play_ok {
+                    AppState::Init
+                } else {
+                    AppState::Exit
+                };
             }
 
             AppState::Exit => break,

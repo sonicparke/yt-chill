@@ -4,51 +4,74 @@ use super::dialoguer_selector::DialoguerSelector;
 use super::fzf::FzfSelector;
 use crate::types::{MenuItem, SelectorType};
 
-/// Selector enum for interactive menus
-pub enum Selector {
-    Fzf(FzfSelector),
-    Dialoguer(DialoguerSelector),
+/// Object-safe menu selector (index into labels).
+pub trait MenuSelector: Send {
+    fn select_index(&self, labels: &[String], prompt: &str) -> Option<usize>;
 }
 
-impl Selector {
-    /// Select an item from the menu
+struct FzfMenuSelector(FzfSelector);
+
+impl MenuSelector for FzfMenuSelector {
+    fn select_index(&self, labels: &[String], prompt: &str) -> Option<usize> {
+        let items: Vec<MenuItem<usize>> = labels
+            .iter()
+            .enumerate()
+            .map(|(i, label)| MenuItem {
+                label: label.clone(),
+                value: i,
+            })
+            .collect();
+        self.0.select(&items, prompt)
+    }
+}
+
+struct DialoguerMenuSelector(DialoguerSelector);
+
+impl MenuSelector for DialoguerMenuSelector {
+    fn select_index(&self, labels: &[String], prompt: &str) -> Option<usize> {
+        let items: Vec<MenuItem<usize>> = labels
+            .iter()
+            .enumerate()
+            .map(|(i, label)| MenuItem {
+                label: label.clone(),
+                value: i,
+            })
+            .collect();
+        self.0.select(&items, prompt)
+    }
+}
+
+/// Interactive menu backed by `fzf` or dialoguer.
+pub struct DynSelector(Box<dyn MenuSelector>);
+
+impl DynSelector {
     pub fn select<T: Clone + Send + 'static>(
         &self,
         items: &[MenuItem<T>],
         prompt: &str,
     ) -> Option<T> {
-        match self {
-            Selector::Fzf(s) => s.select(items, prompt),
-            Selector::Dialoguer(s) => s.select(items, prompt),
+        if items.is_empty() {
+            return None;
         }
-    }
-
-    /// Check if selector is available
-    #[allow(dead_code)]
-    pub fn is_available(&self) -> bool {
-        match self {
-            Selector::Fzf(s) => s.is_available(),
-            Selector::Dialoguer(s) => s.is_available(),
-        }
+        let labels: Vec<String> = items.iter().map(|i| i.label.clone()).collect();
+        let idx = self.0.select_index(&labels, prompt)?;
+        items.get(idx).map(|m| m.value.clone())
     }
 }
 
 /// Create a selector based on type
-pub fn create_selector(selector_type: SelectorType) -> Selector {
+pub fn create_selector(selector_type: SelectorType) -> DynSelector {
     match selector_type {
         SelectorType::Fzf => {
             let fzf = FzfSelector::new();
             if fzf.is_available() {
-                return Selector::Fzf(fzf);
+                return DynSelector(Box::new(FzfMenuSelector(fzf)));
             }
-            // Fall back to dialoguer
-            Selector::Dialoguer(DialoguerSelector::new())
+            DynSelector(Box::new(DialoguerMenuSelector(DialoguerSelector::new())))
         }
-        SelectorType::Rofi => {
-            // TODO: Implement rofi selector
-            Selector::Dialoguer(DialoguerSelector::new())
+        SelectorType::Dialoguer => {
+            DynSelector(Box::new(DialoguerMenuSelector(DialoguerSelector::new())))
         }
-        SelectorType::Dialoguer => Selector::Dialoguer(DialoguerSelector::new()),
     }
 }
 
@@ -59,4 +82,17 @@ pub fn detect_selector() -> SelectorType {
         return SelectorType::Fzf;
     }
     SelectorType::Dialoguer
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::MenuItem;
+
+    #[test]
+    fn dialoguer_dyn_select_empty_menu_returns_none() {
+        let s = create_selector(SelectorType::Dialoguer);
+        let items: Vec<MenuItem<u32>> = vec![];
+        assert_eq!(s.select(&items, "prompt"), None);
+    }
 }

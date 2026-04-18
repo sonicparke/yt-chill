@@ -17,6 +17,21 @@ pub fn get_cache_key(query: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Cache key for a video search (`query`, `limit`).
+///
+/// Matches the legacy `get_cache_key(&format!("video:{}:{}", …))` input so
+/// existing cache files stay valid.
+pub fn cache_key_video_search(query: &str, limit: usize) -> String {
+    get_cache_key(&format!("video:{}:{}", query, limit))
+}
+
+/// Cache key for a channel videos fetch (`handle`, `limit`).
+///
+/// Matches the legacy `get_cache_key(&format!("channel:{}:{}", …))` input.
+pub fn cache_key_channel_videos(handle: &str, limit: usize) -> String {
+    get_cache_key(&format!("channel:{}:{}", handle, limit))
+}
+
 /// Get cache file path
 fn cache_path(key: &str) -> PathBuf {
     PathBuf::from(get_cache_dir()).join(format!("{}.json", key))
@@ -109,5 +124,39 @@ mod tests {
         let now = 1_000_000i64;
         assert!(is_expired(now - 1, 0, now));
         assert!(!is_expired(now, 0, now));
+    }
+
+    #[test]
+    fn cache_key_video_search_matches_legacy_format() {
+        for (q, n) in [("lofi", 15usize), ("café", 1usize), ("", 0usize)] {
+            assert_eq!(
+                cache_key_video_search(q, n),
+                get_cache_key(&format!("video:{}:{}", q, n))
+            );
+        }
+        let long = "x".repeat(200);
+        assert_eq!(
+            cache_key_video_search(&long, 99),
+            get_cache_key(&format!("video:{}:{}", long, 99))
+        );
+    }
+
+    #[test]
+    fn cache_key_channel_videos_matches_legacy_format() {
+        for (h, n) in [
+            ("@Handle", 5usize),
+            ("channel/UCabc", 10usize),
+            ("", 1usize),
+        ] {
+            assert_eq!(
+                cache_key_channel_videos(h, n),
+                get_cache_key(&format!("channel:{}:{}", h, n))
+            );
+        }
+        let long = "y".repeat(100);
+        assert_eq!(
+            cache_key_channel_videos(&long, 20),
+            get_cache_key(&format!("channel:{}:{}", long, 20))
+        );
     }
 }

@@ -2,7 +2,7 @@
 
 Living tracker of which items from [REFINEMENT.md](REFINEMENT.md) are done, in-flight, or deferred. Update this file at the end of every session.
 
-**Last updated:** 2026-04-18 (tooling + hygiene + UX + macOS-path slices)
+**Last updated:** 2026-04-18 (Waves A–D: cache/parsers, PATH, docs, tracing, config, state loop, dyn selector)
 **Current branch:** `main` (all pushed to `origin/main`)
 
 ---
@@ -17,6 +17,32 @@ Living tracker of which items from [REFINEMENT.md](REFINEMENT.md) are done, in-f
 ---
 
 ## Completed
+
+### Session 2026-04-18 — Waves A–D (HANDOFF 11, 14, 15, 18, 19, 23, 27–29, 35–37)
+
+Orchestration prompt `WAVES_AD_AUTONOMOUS_ORCHESTRATION_PROMPT.md` executed in-repo (single workspace).
+
+**Wave A — cache, PATH, docs**
+
+- [x] **18 + 19.** Typed cache keys [`cache_key_video_search`](src/storage/cache.rs) / [`cache_key_channel_videos`](src/storage/cache.rs); [`youtube.rs`](src/core/youtube.rs) uses them. Search parsers flattened via `search_item_section_contents`, `parse_video_renderer`, `parse_channel_renderer`.
+- [x] **11.** [`resolve_executable_in_path`](src/utils/process.rs) + PATH walk; [`is_command_available`](src/utils/process.rs) is sync (no `which`). [`FzfSelector::is_available`](src/ui/fzf.rs) uses the same helper.
+- [x] **35.** Optional `.cargo/config.toml` with cross-target `rustflags` **not** added (would risk default ubuntu CI); treated as completed doc-only per orchestration fallback.
+- [x] **36 + 37.** [README.md](README.md): crates.io / install-from-git; Syncplay policy. [SECURITY.md](SECURITY.md): `editor` execution surface.
+
+**Wave B — tracing**
+
+- [x] **23.** `tracing` + `tracing-subscriber` + `-v` / `--verbose`; [`extract_yt_initial_data`](src/core/youtube.rs) emits `tracing::debug!` on regex/JSON parse issues; [`tracing_test`](src/core/youtube.rs) regression for regex miss.
+
+**Wave C — config cleanup**
+
+- [x] **29.** Removed unused `notify` from [`Config`](src/types.rs); serde ignores legacy JSON (unit test).
+- [x] **27.** Removed `SelectorType::Rofi`; [`load_config`](src/storage/config.rs) maps `"rofi"` / `"Rofi"` → dialoguer before typed parse (tests).
+- [x] **28.** [`use_syncplay`](src/utils/playback.rs) = `cli_flag || player == Syncplay`; wired in [`main.rs`](src/main.rs) for deps + playback path; README documented.
+
+**Wave D — loop + selector**
+
+- [x] **14.** After a **successful** `AppState::Play` (stream / download / syncplay), state returns to `AppState::Init` instead of exiting; failures still exit.
+- [x] **15.** [`DynSelector`](src/ui/selector.rs) (`Box<dyn MenuSelector>`) replaces the public `Selector` enum; fzf/dialoguer adapters implement `select_index`.
 
 ### Session 2026-04-18 — tooling + hygiene + UX + macOS-path
 
@@ -79,28 +105,28 @@ See [CORRECTNESS_PASS.md](CORRECTNESS_PASS.md) for the detailed plan that was ex
 Ancillary (from clippy cleanup during verification):
 
 - [x] Added `#[derive(Default)]` on `FzfSelector` and `DialoguerSelector` — [src/ui/fzf.rs](src/ui/fzf.rs), [src/ui/dialoguer_selector.rs](src/ui/dialoguer_selector.rs)
-- [x] Extracted duplicated `is_command_available` to shared helper (covers item **11** partially) — new [src/utils/process.rs](src/utils/process.rs)
+- [x] Extracted duplicated `is_command_available` to shared helper — new [src/utils/process.rs](src/utils/process.rs) (item **11** completed later same day: PATH walk, no `which`)
 - [x] Removed dead duplicate `get_subscriptions_path` from `utils/paths.rs` (covers item **12**)
 
 ---
 
 ## Pending — high-value (recommended next)
 
-Tooling, hygiene, UX, and macOS-path slices are all done. Remaining items are open-ended polish (14, 15, 18, 19, 23, 27, 28, 29, 35, 36, 37).
+No open REFINEMENT items tracked here; see [REFINEMENT.md](REFINEMENT.md) for any new backlog.
 
 ---
 
 ## Pending — architecture / DRY
 
-- [~] **11.** `is_command_available` de-duplicated (done). Consider walking `$PATH` in Rust instead of spawning `which` (open)
+- [x] **11.** `is_command_available` uses pure PATH walk (session 2026-04-18 Waves A–D)
 - [x] **12.** `get_subscriptions_path` duplication resolved
 - [x] **13.** Module-level `#![allow(dead_code)]` removed; `CliOptions` / `AppContext` / `ErrorCode` deleted; `clear_cache` / `History::clear` / `remove_subscription` wired into `--clear-cache` / `--clear-history` / `--unsubscribe` (session 2026-04-18)
-- [ ] **14.** Flatten the theatrical state machine in [src/main.rs](src/main.rs), or make it real (post-play return to menu)
-- [ ] **15.** Consider replacing the `Selector` enum + factory with `Box<dyn Selector>`
+- [x] **14.** Post-play return to main menu on success (session 2026-04-18 Waves A–D)
+- [x] **15.** `DynSelector` + `Box<dyn MenuSelector>` (session 2026-04-18 Waves A–D)
 - [x] **16.** `reqwest::Client` shared (done as part of item 38)
 - [x] **17.** `ytInitialData` regex wrapped in `LazyLock<Regex>` (session 2026-04-18)
-- [ ] **18.** Move `"video:"` / `"channel:"` cache-key prefixing into typed cache helpers — [src/storage/cache.rs](src/storage/cache.rs)
-- [ ] **19.** Flatten 8-10-deep `.get(...).and_then(...)` chains in `parse_search_results` / `parse_channel_results` (helper fn or `serde_json_path`)
+- [x] **18.** Typed cache key helpers (session 2026-04-18 Waves A–D)
+- [x] **19.** Flatter search parsers via shared section helper + per-renderer parsers (session 2026-04-18 Waves A–D)
 
 ---
 
@@ -109,13 +135,13 @@ Tooling, hygiene, UX, and macOS-path slices are all done. Remaining items are op
 - [x] **20.** Empty query re-prompts with a hint (session 2026-04-18)
 - [x] **21.** `--list-subs` / `--unsubscribe` flags (session 2026-04-18)
 - [x] **22.** `--clear-cache` / `--clear-history` flags (session 2026-04-18)
-- [ ] **23.** Add `tracing` + `-v/--verbose` flag for debuggable YouTube parse failures
+- [x] **23.** `tracing` + `-v` / `--verbose` (session 2026-04-18 Waves A–D)
 - [x] **24.** Buffering animation replaced with `indicatif` spinner (session 2026-04-18)
 - [x] **25.** `--audio-format best` default (session 2026-04-18)
 - [x] **26.** `editor` default now `$EDITOR -> vi` (session 2026-04-18)
-- [ ] **27.** Implement or remove `SelectorType::Rofi` — [src/ui/selector.rs:47](src/ui/selector.rs)
-- [ ] **28.** Reconcile `PlayerType::Syncplay` config vs `--syncplay` flag (pick one)
-- [ ] **29.** Implement or remove `notify: bool` config
+- [x] **27.** `Rofi` removed; legacy `"rofi"` config mapped to dialoguer (session 2026-04-18 Waves A–D)
+- [x] **28.** `use_syncplay(cli, cfg.player)` policy (session 2026-04-18 Waves A–D)
+- [x] **29.** `notify` removed from `Config`; legacy JSON ignored (session 2026-04-18 Waves A–D)
 - [x] **30.** Covered by item 3 (tilde expansion)
 
 ---
@@ -126,14 +152,14 @@ Tooling, hygiene, UX, and macOS-path slices are all done. Remaining items are op
 - [x] **32.** `[profile.release]` tweaks (session 2026-04-18)
 - [x] **33.** Fixture-based tests (session 2026-04-18)
 - [x] **34.** `colored` v3, `dirs` v6 (session 2026-04-18)
-- [ ] **35.** (optional) `.cargo/config.toml` with cross-build rustflags
-- [ ] **36.** Note crates.io publish status in [README.md](README.md)
+- [x] **35.** Doc-only: optional rustflags `.cargo/config.toml` skipped to protect default CI (session 2026-04-18 Waves A–D)
+- [x] **36.** README install / crates.io note (session 2026-04-18 Waves A–D)
 
 ---
 
 ## Pending — security (minor)
 
-- [ ] **37.** Document `editor` config as a code-execution surface (low risk)
+- [x] **37.** [SECURITY.md](SECURITY.md) + README pointer (session 2026-04-18 Waves A–D)
 - [x] **38.** HTTP timeout added
 
 ---
@@ -146,15 +172,7 @@ Tooling, hygiene, UX, and macOS-path slices are all done. Remaining items are op
 
 ## Suggested next slice
 
-Most of the high-value work is landed. Natural next batches:
-
-- **Observability / debuggability**: 23 (tracing + `-v/--verbose`). Would make future YouTube-layout breakage much easier to diagnose.
-- **Parser readability**: 18 + 19. Flatten the `.get(...).and_then(...)` chains and move `"video:"` / `"channel:"` cache-key prefixing into typed helpers. Purely internal.
-- **State machine**: 14. Make the post-play loop actually loop back to the menu, or flatten the state-machine theatrics.
-- **Config polish**: 27 + 28 + 29. Decide on Rofi / Syncplay / notify — either implement or delete.
-- **Cross-build / publish**: 35 + 36.
-
-Ask the user which they'd prefer before starting.
+REFINEMENT tracker items above are closed through **38**. Next work is new scope from [REFINEMENT.md](REFINEMENT.md) or product direction.
 
 ---
 
@@ -164,3 +182,100 @@ Ask the user which they'd prefer before starting.
 2. Draft a plan in plan mode, cite specific file paths, confirm scope with the user before executing.
 3. After execution: mark items `[x]` in this file, move completed items under a new `### Session YYYY-MM-DD` heading, and update the `Last updated` date at the top.
 4. If you dropped or changed scope on an item, note it under `Deferred / dropped` with rationale.
+5. **Subagent + merge workflow (TDD slices):** Run the slice as a Cursor Task with `subagent_type: best-of-n-runner` (or your usual worktree agent). When it returns, merge the branch it reports (e.g. `cursor/a1-youtube-cache-internals-tdd`) into `main` in the **parent** session, run the same gates (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`), update this `HANDOFF.md`, push, then start the **next** slice (e.g. **A2** PATH / `which`) using the **same TDD block** in that slice’s Task prompt.
+
+---
+
+## Appendix — Task prompt: A1 (`HANDOFF` 18 + 19, TDD)
+
+Copy everything inside the fence into a Cursor Task (e.g. `best-of-n-runner`). The closing **Orchestration** paragraph is for the **parent** agent after the subagent finishes; you may leave it in the Task so the subagent sees merge is out of scope for it.
+
+```text
+You are implementing HANDOFF.md items 18 + 19 for the yt-chill Rust CLI.
+
+## Repo and isolation
+
+- Primary repo: /Users/bradmcalister/DEV/yt-chill
+- Base: checkout a NEW worktree from `origin/main` (use latest SHA; run `git fetch origin && git rev-parse origin/main` first).
+- Worktree path (example): /Users/bradmcalister/DEV/yt-chill-wt/a1-youtube-cache-internals
+- Branch name: `cursor/a1-youtube-cache-internals-tdd`
+- DO NOT push. DO NOT merge to main. One PR-ready branch.
+
+## Scope (exact)
+
+### Item 18 — typed cache key helpers
+
+Today `src/core/youtube.rs` builds cache keys with string prefixes inline:
+
+- `fetch_search_results`: `get_cache_key(&format!("video:{}:{}", query, limit))`
+- `fetch_channel_videos`: `get_cache_key(&format!("channel:{}:{}", channel_handle, limit))`
+
+Move prefix + composition into `src/storage/cache.rs` as small, documented helpers, e.g.:
+
+- `pub fn cache_key_video_search(query: &str, limit: usize) -> String` → must produce the **same** final key string as `get_cache_key(&format!("video:{}:{}", query, limit))` today (byte-for-byte identical SHA input).
+- `pub fn cache_key_channel_videos(handle: &str, limit: usize) -> String` → same as current `get_cache_key(&format!("channel:{}:{}", channel_handle, limit))`.
+
+Keep `get_cache_key` as the low-level hasher OR fold hashing inside the new helpers — your choice, but **existing on-disk cache files must remain valid** (same key strings as before for the same inputs).
+
+Update `youtube.rs` call sites to use the new helpers only.
+
+### Item 19 — flatten parser chains
+
+In `src/core/youtube.rs`, reduce depth of `.get(...).and_then(...)` in `parse_search_results` and `parse_channel_results` by extracting small pure helpers (private `fn` or `mod parse` with helpers). **No behavior change**: same JSON in → same `Vec<Video>` / channel structs out.
+
+`parse_channel_videos_tab` is optional to touch only if you can do so without risk; priority is search + channel **search** parsers.
+
+## TDD (mandatory order)
+
+1. **RED — tests first**
+   - In `src/storage/cache.rs` `#[cfg(test)]` (or a focused test module), add tests that lock the **contract** for the new helpers:
+     - For several `(query, limit)` pairs, `cache_key_video_search(q, n)` must equal `get_cache_key(&format!("video:{}:{}", q, n))`.
+     - For several `(handle, limit)` pairs, `cache_key_channel_videos(h, n)` must equal `get_cache_key(&format!("channel:{}:{}", h, n))`.
+   - Add 1–2 **parser regression tests** in `src/core/youtube.rs` `#[cfg(test)]` if the existing suite does not already cover a branch you will refactor (e.g. a minimal extra fixture for a shallow path you split out). New tests must **fail** before you refactor (e.g. temporarily wrong helper return, or assert on a helper you have not added yet — pick a honest RED).
+   - Run `cargo test` and **capture** that new tests fail.
+
+2. **GREEN**
+   - Implement helpers + wire `youtube.rs`; refactor parsers until all tests pass.
+
+3. **REFACTOR (optional)**
+   - Internal cleanup only; tests stay green.
+
+4. **Gate**
+   - `cargo fmt`
+   - `cargo clippy --all-targets -- -D warnings`
+   - `cargo test`
+
+## Commits (preferred)
+
+Two commits on your branch:
+
+1. `test: lock cache key contracts before typed helpers`
+2. `refactor: typed cache keys and flatter YouTube parsers`
+
+If you truly must use one commit, state TDD in the message and keep tests logically first in the diff.
+
+## Files in scope
+
+- `src/storage/cache.rs`
+- `src/core/youtube.rs`
+- `Cargo.toml` / `Cargo.lock` only if you add a dev-dep (avoid unless necessary)
+
+## Out of scope
+
+- Item 23 tracing, items 27–29, HANDOFF anything else
+- Changing TTL, cache file layout, or HTTP behavior
+
+## Success criteria
+
+- All new tests described above exist and pass.
+- `cache_key_*` helpers are used from `youtube.rs`; no remaining `format!("video:{}:{}"` / `format!("channel:{}:{}"` for cache keys in `youtube.rs`.
+- Parser outputs unchanged for existing tests; `cargo clippy --all-targets -- -D warnings` clean.
+
+## Report back to parent
+
+Return: worktree path, branch name, commit SHAs (1 or 2), list of new test names, and any file touched.
+
+---
+
+Orchestration (parent agent — subagent does NOT do this): You can run this as a Task with `subagent_type: best-of-n-runner` (or your usual worktree agent). When it returns, merge `cursor/a1-youtube-cache-internals-tdd` into `main` in the parent session, run the same gates, update `HANDOFF.md`, then move to **A2** (PATH / `which`) with the same TDD block.
+```

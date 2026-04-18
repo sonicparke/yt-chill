@@ -76,7 +76,6 @@ pub enum PlayerType {
 pub enum SelectorType {
     #[default]
     Fzf,
-    Rofi,
     Dialoguer,
 }
 
@@ -98,8 +97,6 @@ pub struct Config {
     pub player: PlayerType,
     /// Menu selector
     pub selector: SelectorType,
-    /// Show desktop notifications
-    pub notify: bool,
 }
 
 impl Default for Config {
@@ -112,7 +109,6 @@ impl Default for Config {
             editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".into()),
             player: PlayerType::default(),
             selector: SelectorType::default(),
-            notify: true,
         }
     }
 }

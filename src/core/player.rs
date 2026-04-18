@@ -16,7 +16,7 @@ pub fn build_video_url(video_id: &str) -> String {
 /// Play audio/video using mpv with buffering indicator
 pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
     // Check if mpv is available
-    if !is_command_available("mpv").await {
+    if !is_command_available("mpv") {
         return Err(YtChillError::MissingDependency("mpv".into()));
     }
 
@@ -85,7 +85,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
 
 /// Play with syncplay
 pub async fn play_with_syncplay(url: &str) -> Result<()> {
-    if !is_command_available("syncplay").await {
+    if !is_command_available("syncplay") {
         return Err(YtChillError::MissingDependency("syncplay".into()));
     }
 
