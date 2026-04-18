@@ -59,6 +59,40 @@ struct Cli {
     /// Edit the configuration file
     #[arg(short, long)]
     edit: bool,
+
+    /// List current subscriptions and exit
+    #[arg(long)]
+    list_subs: bool,
+
+    /// Interactively remove a subscription and exit
+    #[arg(long)]
+    unsubscribe: bool,
+
+    /// Clear the search/feed cache and exit
+    #[arg(long)]
+    clear_cache: bool,
+
+    /// Clear watch history and exit
+    #[arg(long)]
+    clear_history: bool,
+}
+
+/// Prompt for a non-empty string, re-prompting on empty input.
+///
+/// Ctrl-C propagates as `Err` (dialoguer's existing behaviour), which the
+/// caller then bubbles up with `?` so the app exits cleanly.
+fn prompt_nonempty(prompt: &str) -> anyhow::Result<String> {
+    loop {
+        let input: String = dialoguer::Input::new()
+            .with_prompt(prompt)
+            .allow_empty(true)
+            .interact_text()?;
+        let trimmed = input.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+        println!("{}", "Please enter something (Ctrl-C to cancel).".yellow());
+    }
 }
 
 /// Format video for display in selector
@@ -140,6 +174,62 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Handle subscription management / maintenance flags. These all
+    // short-circuit the state machine and exit immediately.
+    if cli.list_subs {
+        use crate::storage::subscriptions::load_subscriptions;
+        let subs = load_subscriptions().await?;
+        if subs.is_empty() {
+            println!("No subscriptions yet.");
+        } else {
+            for sub in &subs {
+                println!("{}  {}", sub.handle.cyan(), sub.name.dimmed());
+            }
+        }
+        return Ok(());
+    }
+
+    if cli.unsubscribe {
+        use crate::storage::subscriptions::{load_subscriptions, remove_subscription};
+        let subs = load_subscriptions().await?;
+        if subs.is_empty() {
+            println!("No subscriptions to remove.");
+            return Ok(());
+        }
+
+        let selector = create_selector(detect_selector());
+        let menu_items: Vec<MenuItem<crate::types::Subscription>> = subs
+            .iter()
+            .map(|s| MenuItem {
+                label: format!("{}  {}", s.handle.cyan(), s.name.dimmed()),
+                value: s.clone(),
+            })
+            .collect();
+
+        if let Some(chosen) = selector.select(&menu_items, "Remove subscription") {
+            remove_subscription(&chosen.handle).await?;
+            println!("{} Removed {}", "✓".green(), chosen.name);
+        } else {
+            println!("{}", "No subscription selected.".dimmed());
+        }
+        return Ok(());
+    }
+
+    if cli.clear_cache {
+        crate::storage::cache::clear_cache().await?;
+        println!("{}", "Cache cleared.".green());
+        return Ok(());
+    }
+
+    if cli.clear_history {
+        let cfg = config::load_config().await?;
+        let mut history = History::new(&get_history_path(), cfg.max_history_entries);
+        history.load().await?;
+        history.clear().await?;
+        println!("{}", "History cleared.".green());
+        return Ok(());
+    }
+
     // Fail fast if required external tools are missing.
     check_external_deps(&cli).await?;
 
@@ -188,19 +278,10 @@ async fn main() -> anyhow::Result<()> {
 
             AppState::Search => {
                 let search_query = if query.is_empty() {
-                    // Prompt for query using dialoguer
-                    let input: String = dialoguer::Input::new()
-                        .with_prompt("Search YouTube")
-                        .interact_text()?;
-                    input
+                    prompt_nonempty("Search YouTube")?
                 } else {
                     query.clone()
                 };
-
-                if search_query.is_empty() {
-                    state = AppState::Exit;
-                    continue;
-                }
 
                 println!("{}", "Searching...".dimmed());
                 match youtube::search_videos(&search_query, cli.limit).await {
@@ -324,15 +405,9 @@ async fn main() -> anyhow::Result<()> {
                 use crate::storage::subscriptions::add_subscription;
                 use crate::types::Subscription;
 
-                // Prompt for channel search
-                let search_query: String = dialoguer::Input::new()
-                    .with_prompt("Search for channel")
-                    .interact_text()?;
-
-                if search_query.is_empty() {
-                    state = AppState::Exit;
-                    continue;
-                }
+                // Prompt for channel search (re-prompts on empty input;
+                // Ctrl-C exits cleanly via `?`).
+                let search_query = prompt_nonempty("Search for channel")?;
 
                 println!("{}", "Searching for channels...".dimmed());
                 match youtube::search_channels(&search_query, 10).await {

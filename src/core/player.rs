@@ -3,10 +3,10 @@
 use crate::error::{Result, YtChillError};
 use crate::types::PlayOptions;
 use crate::utils::process::is_command_available;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
-use tokio::time::sleep;
 
 /// Build YouTube URL from video ID
 pub fn build_video_url(video_id: &str) -> String {
@@ -34,18 +34,25 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
 
     args.push(url);
 
-    // Show snarky buffering message
-    print!("⏳ Convincing YouTube to share... 🙄");
-    use std::io::Write;
-    std::io::stdout().flush().ok();
+    // Buffering spinner: runs until either the 6s "now vibing" transition
+    // fires or mpv exits early.
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .unwrap()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+    );
+    spinner.set_message("Buffering...");
+    spinner.enable_steady_tick(Duration::from_millis(80));
 
-    // Spawn a background task to show "now playing" after typical buffer time
-    let playing_msg_handle = tokio::spawn(async {
-        sleep(Duration::from_secs(6)).await;
-        // Clear the line and show playing message
-        print!("\r\x1b[K"); // Clear current line
+    // After ~6s (typical time-to-first-byte for mpv+ytdl), swap the spinner
+    // out for the cheerful "Vibing..." line. If mpv exits first, we abort
+    // this task below so the message never prints.
+    let vibing_spinner = spinner.clone();
+    let vibing_handle = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        vibing_spinner.finish_and_clear();
         println!("🎵 Vibing... Sit back and chill. (space=pause, q=quit)");
-        std::io::stdout().flush().ok();
     });
 
     // Spawn mpv with inherited stdio so keyboard controls work
@@ -58,8 +65,11 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
         .await
         .map_err(|e| YtChillError::Spawn(format!("Failed to start mpv: {}", e)))?;
 
-    // Cancel the message task if mpv exits quickly (e.g., error or early quit)
-    playing_msg_handle.abort();
+    // If mpv exited before the "Vibing..." task fired, cancel it and clear
+    // the spinner ourselves. If it already fired, finish_and_clear is a
+    // no-op since the bar is already finished.
+    vibing_handle.abort();
+    spinner.finish_and_clear();
 
     if !status.success() {
         return Err(YtChillError::Spawn(format!(
@@ -68,8 +78,6 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
         )));
     }
 
-    // Clear line and show goodbye
-    print!("\r\x1b[K");
     println!("👋 Thanks for chilling.");
 
     Ok(())
