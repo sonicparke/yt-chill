@@ -34,11 +34,14 @@ yt-chill -e                      # Edit config
 
 ## Keyboard Controls
 
-While playing:
+While playing (mpv):
 - **Space** — Pause/resume
 - **←/→** — Seek backward/forward
 - **↑/↓** — Volume up/down
-- **q** — Quit
+- **b** — Stop playback and return to the main menu
+- **q** — Stop playback and exit yt-chill
+
+(Syncplay uses its own window and shortcuts.)
 
 ## All Options
 

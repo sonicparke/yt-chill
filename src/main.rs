@@ -503,9 +503,17 @@ async fn main() -> anyhow::Result<()> {
                             video: cli.video,
                             format: None,
                         };
-                        if let Err(e) = player::play(&url, &opts).await {
-                            play_ok = false;
-                            eprintln!("{} {}", "Error:".red(), e);
+                        match player::play(&url, &opts).await {
+                            Ok(player::MpvPlayExit::BackToMenu) => {
+                                play_ok = true;
+                            }
+                            Ok(player::MpvPlayExit::QuitApp) => {
+                                play_ok = false;
+                            }
+                            Err(e) => {
+                                play_ok = false;
+                                eprintln!("{} {}", "Error:".red(), e);
+                            }
                         }
                     }
                     "download" => {
