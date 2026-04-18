@@ -414,11 +414,234 @@ pub async fn fetch_channel_videos(channel_handle: &str, limit: usize) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_build_search_url() {
         let url = build_search_url("lofi beats", "video");
         assert!(url.contains("search_query=lofi%20beats"));
         assert!(url.contains("sp=EgIQAQ"));
+    }
+
+    #[test]
+    fn build_channel_videos_url_handles_all_shapes() {
+        assert_eq!(
+            build_channel_videos_url("@Handle"),
+            "https://www.youtube.com/@Handle/videos"
+        );
+        assert_eq!(
+            build_channel_videos_url("channel/UC_abc"),
+            "https://www.youtube.com/channel/UC_abc/videos"
+        );
+        // Legacy broken shape from pre-item-9 subscriptions must be rewritten.
+        assert_eq!(
+            build_channel_videos_url("@UC_JhYV43bqoR_P6z2aB80hA"),
+            "https://www.youtube.com/channel/UC_JhYV43bqoR_P6z2aB80hA/videos"
+        );
+    }
+
+    fn make_search_fixture() -> serde_json::Value {
+        json!({
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "itemSectionRenderer": {
+                                    "contents": [{
+                                        "videoRenderer": {
+                                            "videoId": "abc123",
+                                            "title": {"runs": [{"text": "Hello &amp; goodbye"}]},
+                                            "longBylineText": {"runs": [{"text": "Test Author"}]},
+                                            "lengthText": {"simpleText": "10:15"},
+                                            "viewCountText": {"simpleText": "1,234 views"},
+                                            "publishedTimeText": {"simpleText": "2 days ago"},
+                                            "thumbnail": {"thumbnails": [
+                                                {"url": "http://example.com/small.jpg"},
+                                                {"url": "http://example.com/large.jpg"}
+                                            ]}
+                                        }
+                                    }]
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn parse_search_results_extracts_fields_and_decodes_entities() {
+        let data = make_search_fixture();
+        let videos = parse_search_results(&data, 10);
+        assert_eq!(videos.len(), 1);
+        let v = &videos[0];
+        assert_eq!(v.id, "abc123");
+        assert_eq!(v.title, "Hello & goodbye");
+        assert_eq!(v.author, "Test Author");
+        assert_eq!(v.duration, "10:15");
+        assert_eq!(v.views, "1,234 views");
+        assert_eq!(v.published, "2 days ago");
+        assert_eq!(v.thumbnail, "http://example.com/large.jpg");
+    }
+
+    #[test]
+    fn parse_search_results_respects_limit() {
+        let mut data = make_search_fixture();
+        // Duplicate the renderer three times so limit=2 actually trims.
+        let contents = data["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]
+            ["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]["contents"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let first = contents[0].clone();
+        data["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]["sectionListRenderer"]
+            ["contents"][0]["itemSectionRenderer"]["contents"] =
+            json!([first.clone(), first.clone(), first]);
+        assert_eq!(parse_search_results(&data, 2).len(), 2);
+    }
+
+    #[test]
+    fn parse_search_results_missing_fields_returns_empty() {
+        assert!(parse_search_results(&json!({}), 10).is_empty());
+    }
+
+    #[test]
+    fn parse_search_results_defaults_duration_to_live() {
+        let mut data = make_search_fixture();
+        data["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]
+            ["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]["contents"][0]
+            ["videoRenderer"]
+            .as_object_mut()
+            .unwrap()
+            .remove("lengthText");
+        let videos = parse_search_results(&data, 10);
+        assert_eq!(videos[0].duration, "LIVE");
+    }
+
+    fn channel_search_fixture(canonical: Option<&str>, channel_id: &str) -> serde_json::Value {
+        let mut renderer = json!({
+            "title": {"simpleText": "Some Channel"},
+            "channelId": channel_id,
+            "subscriberCountText": {"simpleText": "1M subscribers"}
+        });
+        if let Some(c) = canonical {
+            renderer["canonicalBaseUrl"] = json!(c);
+        }
+        json!({
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "itemSectionRenderer": {
+                                    "contents": [{ "channelRenderer": renderer }]
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn parse_channel_results_prefers_canonical_base_url_handle() {
+        let data = channel_search_fixture(Some("/@TheHandle"), "UC_ignored");
+        let channels = parse_channel_results(&data, 10);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].handle, "@TheHandle");
+        assert_eq!(channels[0].name, "Some Channel");
+    }
+
+    #[test]
+    fn parse_channel_results_accepts_canonical_channel_url() {
+        let data = channel_search_fixture(Some("/channel/UC_abc"), "UC_abc");
+        let channels = parse_channel_results(&data, 10);
+        assert_eq!(channels[0].handle, "channel/UC_abc");
+    }
+
+    #[test]
+    fn parse_channel_results_falls_back_to_channel_id_form() {
+        let data = channel_search_fixture(None, "UC_fallback");
+        let channels = parse_channel_results(&data, 10);
+        assert_eq!(channels[0].handle, "channel/UC_fallback");
+    }
+
+    fn channel_videos_fixture() -> serde_json::Value {
+        json!({
+            "metadata": {
+                "channelMetadataRenderer": {"title": "Channel Title"}
+            },
+            "contents": {
+                "twoColumnBrowseResultsRenderer": {
+                    "tabs": [
+                        // Empty tab should be skipped.
+                        {"tabRenderer": {"content": {"richGridRenderer": {"contents": []}}}},
+                        {"tabRenderer": {"content": {"richGridRenderer": {"contents": [
+                            {"richItemRenderer": {"content": {"videoRenderer": {
+                                "videoId": "vid1",
+                                "title": {"runs": [{"text": "First"}]},
+                                "lengthText": {"simpleText": "5:00"},
+                                "viewCountText": {"simpleText": "10 views"},
+                                "publishedTimeText": {"simpleText": "1 hour ago"},
+                                "thumbnail": {"thumbnails": [
+                                    {"url": "http://example.com/t1.jpg"}
+                                ]}
+                            }}}},
+                            {"richItemRenderer": {"content": {"videoRenderer": {
+                                "videoId": "vid2",
+                                "title": {"simpleText": "Second via simpleText"},
+                                // No lengthText -> LIVE
+                                "thumbnail": {"thumbnails": [
+                                    {"url": "http://example.com/t2.jpg"}
+                                ]}
+                            }}}},
+                            // Non-video entry (e.g. reelItemRenderer) should be filtered.
+                            {"richItemRenderer": {"content": {"reelItemRenderer": {
+                                "videoId": "reel1"
+                            }}}}
+                        ]}}}}
+                    ]
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn parse_channel_videos_tab_skips_empty_tabs_and_extracts() {
+        let data = channel_videos_fixture();
+        let videos = parse_channel_videos_tab(&data, 10, "@fallback");
+        assert_eq!(videos.len(), 2);
+        assert_eq!(videos[0].id, "vid1");
+        assert_eq!(videos[0].title, "First");
+        assert_eq!(videos[0].author, "Channel Title");
+        assert_eq!(videos[0].duration, "5:00");
+        assert_eq!(videos[1].id, "vid2");
+        assert_eq!(videos[1].title, "Second via simpleText");
+        assert_eq!(videos[1].duration, "LIVE");
+    }
+
+    #[test]
+    fn parse_channel_videos_tab_falls_back_to_provided_author() {
+        let mut data = channel_videos_fixture();
+        data["metadata"]
+            .as_object_mut()
+            .unwrap()
+            .remove("channelMetadataRenderer");
+        let videos = parse_channel_videos_tab(&data, 10, "@fallback");
+        assert_eq!(videos[0].author, "@fallback");
+    }
+
+    #[test]
+    fn parse_channel_videos_tab_respects_limit() {
+        let data = channel_videos_fixture();
+        assert_eq!(parse_channel_videos_tab(&data, 1, "@x").len(), 1);
+    }
+
+    #[test]
+    fn parse_channel_videos_tab_empty_on_missing_structure() {
+        assert!(parse_channel_videos_tab(&json!({}), 10, "@x").is_empty());
     }
 }
