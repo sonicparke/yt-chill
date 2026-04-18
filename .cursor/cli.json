@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(git)",
+      "Shell(cargo)",
+      "Shell(rustup)",
+      "Shell(mkdir)",
+      "Shell(rg)",
+      "Shell(bash)",
+      "Shell(sh)",
+      "Shell(zsh)",
+      "Read(**)",
+      "Write(**)"
+    ],
+    "deny": ["Shell(rm)"]
+  }
+}
