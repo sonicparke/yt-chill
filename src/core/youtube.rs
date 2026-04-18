@@ -2,6 +2,7 @@
 
 use crate::error::{Result, YtChillError};
 use crate::types::Video;
+use regex::Regex;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -14,6 +15,9 @@ static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .build()
         .expect("failed to build reqwest client")
 });
+
+static YT_INITIAL_DATA_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"var ytInitialData = (.+?);</script>").expect("Invalid regex"));
 
 /// Build YouTube search URL
 fn build_search_url(query: &str, filter: &str) -> String {
@@ -50,9 +54,7 @@ async fn fetch_youtube_html(url: &str) -> Result<String> {
 
 /// Extract ytInitialData JSON from YouTube HTML
 fn extract_yt_initial_data(html: &str) -> Result<serde_json::Value> {
-    let re = regex::Regex::new(r"var ytInitialData = (.+?);</script>").expect("Invalid regex");
-
-    let captures = re
+    let captures = YT_INITIAL_DATA_RE
         .captures(html)
         .ok_or_else(|| YtChillError::YouTubeParse("Failed to find ytInitialData".into()))?;
 

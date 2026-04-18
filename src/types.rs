@@ -1,7 +1,6 @@
 //! Type definitions for yt-chill
 //!
 //! Source of truth for all data structures.
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +34,7 @@ pub struct HistoryEntry {
 }
 
 /// A channel result from channel search
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Channel {
     pub id: String,
@@ -118,36 +118,6 @@ impl Default for Config {
 }
 
 // ============================================
-// CLI Option Types
-// ============================================
-
-/// Parsed CLI options
-#[derive(Debug, Clone)]
-pub struct CliOptions {
-    pub video: bool,
-    pub download: bool,
-    pub history: bool,
-    pub feed: bool,
-    pub subscribe: bool,
-    pub syncplay: bool,
-    pub limit: usize,
-    pub copy_url: bool,
-    pub edit: bool,
-}
-
-/// Runtime context passed through the application
-#[derive(Debug, Clone)]
-pub struct AppContext {
-    pub config: Config,
-    pub options: CliOptions,
-    pub query: String,
-    pub cache_path: String,
-    pub config_path: String,
-    pub history_path: String,
-    pub subscriptions_path: String,
-}
-
-// ============================================
 // Playback Types
 // ============================================
 
@@ -172,6 +142,7 @@ pub struct DownloadOptions {
 }
 
 /// Available video format/quality
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct VideoFormat {
     /// Format code for yt-dlp
