@@ -14,15 +14,16 @@ pub async fn download(url: &str, options: &DownloadOptions) -> Result<()> {
 
     let mut args = Vec::new();
 
-    // Audio-only by default (download as MP3), unless --video flag is passed
+    // Audio-only by default. Prefer the source codec ("best") to avoid a
+    // lossy re-encode; callers can still override with `options.format`.
     if !options.video {
-        args.extend(["-x", "--audio-format", "mp3"]);
+        let audio_format = options.format.as_deref().unwrap_or("best");
+        args.extend(["-x", "--audio-format", audio_format]);
     } else {
         args.extend(["--remux-video", "mp4"]);
-    }
-
-    if let Some(ref format) = options.format {
-        args.extend(["--format", format]);
+        if let Some(ref format) = options.format {
+            args.extend(["--format", format]);
+        }
     }
 
     // Output template

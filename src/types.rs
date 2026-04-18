@@ -92,7 +92,7 @@ pub struct Config {
     pub download_dir: String,
     /// Max history entries (default: 100)
     pub max_history_entries: usize,
-    /// Editor command (default: "nvim")
+    /// Editor command (default: `$EDITOR`, falling back to `vi`)
     pub editor: String,
     /// Video player
     pub player: PlayerType,
@@ -109,7 +109,7 @@ impl Default for Config {
             video_mode: false,           // Audio-only by default
             download_dir: String::new(), // Set at runtime to ~/Downloads
             max_history_entries: 100,
-            editor: "nvim".into(),
+            editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".into()),
             player: PlayerType::default(),
             selector: SelectorType::default(),
             notify: true,
