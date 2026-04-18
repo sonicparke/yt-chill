@@ -3,7 +3,6 @@
 //! On-disk format is JSON (`subscriptions.json`). A legacy `subscriptions.txt`
 //! TSV file is auto-migrated on first read; the original is renamed to
 //! `subscriptions.txt.bak` so the user has a recovery copy.
-#![allow(dead_code)]
 
 use crate::error::Result;
 use crate::types::Subscription;
@@ -99,6 +98,7 @@ pub async fn add_subscription(subscription: &Subscription) -> Result<()> {
 }
 
 /// Remove a subscription by handle.
+#[allow(dead_code)]
 pub async fn remove_subscription(handle: &str) -> Result<()> {
     let mut subs = load_subscriptions().await?;
     subs.retain(|s| s.handle != handle);
