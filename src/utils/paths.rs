@@ -11,12 +11,11 @@ const APP_NAME: &str = "yt-chill";
 /// Get config directory path
 /// Respects XDG_CONFIG_HOME, defaults to ~/.config/yt-chill
 pub fn get_config_dir() -> String {
-    let base = env::var("XDG_CONFIG_HOME")
-        .unwrap_or_else(|_| {
-            dirs::config_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| format!("{}/.config", env::var("HOME").unwrap_or_default()))
-        });
+    let base = env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+        dirs::config_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| format!("{}/.config", env::var("HOME").unwrap_or_default()))
+    });
 
     format!("{}/{}", base, APP_NAME)
 }
@@ -24,12 +23,11 @@ pub fn get_config_dir() -> String {
 /// Get cache directory path
 /// Respects XDG_CACHE_HOME, defaults to ~/.cache/yt-chill
 pub fn get_cache_dir() -> String {
-    let base = env::var("XDG_CACHE_HOME")
-        .unwrap_or_else(|_| {
-            dirs::cache_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| format!("{}/.cache", env::var("HOME").unwrap_or_default()))
-        });
+    let base = env::var("XDG_CACHE_HOME").unwrap_or_else(|_| {
+        dirs::cache_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| format!("{}/.cache", env::var("HOME").unwrap_or_default()))
+    });
 
     format!("{}/{}", base, APP_NAME)
 }

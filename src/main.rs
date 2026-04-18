@@ -163,13 +163,27 @@ async fn main() -> anyhow::Result<()> {
             AppState::Init => {
                 // Show main menu
                 let menu_items = vec![
-                    MenuItem { label: "🔍 Search YouTube".into(), value: AppState::Search },
-                    MenuItem { label: "📜 View your history".into(), value: AppState::History },
-                    MenuItem { label: "➕ Add subscription".into(), value: AppState::Subscribe },
-                    MenuItem { label: "📺 View your feed".into(), value: AppState::Feed },
+                    MenuItem {
+                        label: "🔍 Search YouTube".into(),
+                        value: AppState::Search,
+                    },
+                    MenuItem {
+                        label: "📜 View your history".into(),
+                        value: AppState::History,
+                    },
+                    MenuItem {
+                        label: "➕ Add subscription".into(),
+                        value: AppState::Subscribe,
+                    },
+                    MenuItem {
+                        label: "📺 View your feed".into(),
+                        value: AppState::Feed,
+                    },
                 ];
 
-                state = selector.select(&menu_items, "Select Action").unwrap_or(AppState::Exit);
+                state = selector
+                    .select(&menu_items, "Select Action")
+                    .unwrap_or(AppState::Exit);
             }
 
             AppState::Search => {
@@ -245,24 +259,42 @@ async fn main() -> anyhow::Result<()> {
                 let subs = load_subscriptions().await?;
 
                 if subs.is_empty() {
-                    println!("{}", "No subscriptions yet. Use --subscribe to add channels.".yellow());
+                    println!(
+                        "{}",
+                        "No subscriptions yet. Use --subscribe to add channels.".yellow()
+                    );
                     state = AppState::Exit;
                     continue;
                 }
 
-                println!("{} {} subscriptions", "Loading feed from".dimmed(), subs.len());
+                println!(
+                    "{} {} subscriptions",
+                    "Loading feed from".dimmed(),
+                    subs.len()
+                );
 
-                // Fetch videos from each subscription
-                let mut all_videos: Vec<Video> = Vec::new();
+                let mut set: tokio::task::JoinSet<(String, crate::error::Result<Vec<Video>>)> =
+                    tokio::task::JoinSet::new();
                 for sub in &subs {
-                    match youtube::fetch_channel_videos(&sub.handle, 5).await {
-                        Ok(videos) => {
-                            all_videos.extend(videos);
-                        }
-                        Err(_) => {
-                            // Silently skip failed channels
-                        }
+                    let name = sub.name.clone();
+                    let handle = sub.handle.clone();
+                    set.spawn(
+                        async move { (name, youtube::fetch_channel_videos(&handle, 5).await) },
+                    );
+                }
+
+                let mut all_videos: Vec<Video> = Vec::new();
+                let mut failures: Vec<(String, String)> = Vec::new();
+                while let Some(joined) = set.join_next().await {
+                    match joined {
+                        Ok((_, Ok(videos))) => all_videos.extend(videos),
+                        Ok((name, Err(e))) => failures.push((name, e.to_string())),
+                        Err(join_err) => failures.push(("<task>".into(), join_err.to_string())),
                     }
+                }
+
+                for (name, err) in &failures {
+                    eprintln!("{} {}: {}", "warn:".yellow(), name, err);
                 }
 
                 if all_videos.is_empty() {
@@ -353,7 +385,7 @@ async fn main() -> anyhow::Result<()> {
                 } else if cli.syncplay {
                     "syncplay"
                 } else {
-                    "stream"  // Default: just play
+                    "stream" // Default: just play
                 };
 
                 println!("{} {}", "Playing:".dimmed(), video.title);

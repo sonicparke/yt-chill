@@ -43,7 +43,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
     let playing_msg_handle = tokio::spawn(async {
         sleep(Duration::from_secs(6)).await;
         // Clear the line and show playing message
-        print!("\r\x1b[K");  // Clear current line
+        print!("\r\x1b[K"); // Clear current line
         println!("🎵 Vibing... Sit back and chill. (space=pause, q=quit)");
         std::io::stdout().flush().ok();
     });
@@ -53,7 +53,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<()> {
         .args(&args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
-        .stderr(Stdio::null())  // Suppress mpv's stderr noise
+        .stderr(Stdio::null()) // Suppress mpv's stderr noise
         .status()
         .await
         .map_err(|e| YtChillError::Spawn(format!("Failed to start mpv: {}", e)))?;

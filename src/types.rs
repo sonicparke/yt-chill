@@ -106,7 +106,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             limit: 15,
-            video_mode: false, // Audio-only by default
+            video_mode: false,           // Audio-only by default
             download_dir: String::new(), // Set at runtime to ~/Downloads
             max_history_entries: 100,
             editor: "nvim".into(),

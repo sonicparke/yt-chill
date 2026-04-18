@@ -57,10 +57,7 @@ pub async fn edit_config(editor: &str) -> Result<()> {
         save_config(&Config::default()).await?;
     }
 
-    Command::new(editor)
-        .arg(&config_path)
-        .status()
-        .await?;
+    Command::new(editor).arg(&config_path).status().await?;
 
     Ok(())
 }

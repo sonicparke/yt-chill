@@ -32,12 +32,16 @@ impl FzfSelector {
         // Spawn fzf
         let mut child = Command::new("fzf")
             .args([
-                "--prompt", &format!("{} > ", prompt),
-                "--height", "40%",
+                "--prompt",
+                &format!("{} > ", prompt),
+                "--height",
+                "40%",
                 "--reverse",
                 "--ansi",
-                "--delimiter", "\t",
-                "--with-nth", "2",  // Show only the label
+                "--delimiter",
+                "\t",
+                "--with-nth",
+                "2", // Show only the label
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -54,7 +58,7 @@ impl FzfSelector {
         let output = child.wait_with_output().ok()?;
 
         if !output.status.success() {
-            return None;  // User cancelled
+            return None; // User cancelled
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);

@@ -24,7 +24,6 @@ yt-chill -d --video "query"  # Download as MP4
 yt-chill --history           # Browse watch history
 yt-chill --syncplay "query"  # Watch with friends via syncplay
 yt-chill -e                  # Edit config file
-yt-chill --copy-url "query"  # Display video URL
 yt-chill -l 20 "query"       # Limit results (default: 15)
 yt-chill -F, --feed          # View subscription feed
 yt-chill -s, --subscribe     # Add channel to subscriptions

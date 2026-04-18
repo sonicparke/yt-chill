@@ -50,17 +50,15 @@ async fn fetch_youtube_html(url: &str) -> Result<String> {
 
 /// Extract ytInitialData JSON from YouTube HTML
 fn extract_yt_initial_data(html: &str) -> Result<serde_json::Value> {
-    let re = regex::Regex::new(r"var ytInitialData = (.+?);</script>")
-        .expect("Invalid regex");
+    let re = regex::Regex::new(r"var ytInitialData = (.+?);</script>").expect("Invalid regex");
 
-    let captures = re.captures(html).ok_or_else(|| {
-        YtChillError::YouTubeParse("Failed to find ytInitialData".into())
-    })?;
+    let captures = re
+        .captures(html)
+        .ok_or_else(|| YtChillError::YouTubeParse("Failed to find ytInitialData".into()))?;
 
     let json_str = captures.get(1).unwrap().as_str();
-    serde_json::from_str(json_str).map_err(|e| {
-        YtChillError::YouTubeParse(format!("Failed to parse ytInitialData: {}", e))
-    })
+    serde_json::from_str(json_str)
+        .map_err(|e| YtChillError::YouTubeParse(format!("Failed to parse ytInitialData: {}", e)))
 }
 
 /// Decode HTML entities in a string
@@ -218,16 +216,16 @@ fn parse_channel_results(data: &serde_json::Value, limit: usize) -> Vec<ChannelI
                 .map(decode_html_entities)
                 .unwrap_or_default();
 
-            // Try to get handle, fall back to channel ID
+            // Prefer canonicalBaseUrl (e.g. "/@HandleName" or "/channel/UCxxxx").
+            // Fall back to a channel/{id} form if missing.
             let handle = c
-                .get("subscriberCountText")
-                .and_then(|_| c.get("channelId"))
-                .and_then(|id| id.as_str())
-                .map(|id| format!("@{}", id))
+                .get("canonicalBaseUrl")
+                .and_then(|u| u.as_str())
+                .map(|u| u.trim_start_matches('/').to_string())
                 .or_else(|| {
                     c.get("channelId")
                         .and_then(|id| id.as_str())
-                        .map(|s| s.to_string())
+                        .map(|id| format!("channel/{}", id))
                 })
                 .unwrap_or_default();
 
@@ -255,29 +253,160 @@ pub async fn search_channels(query: &str, limit: usize) -> Result<Vec<ChannelInf
     Ok(results)
 }
 
-/// Fetch recent videos from a channel
+/// Build the URL for a channel's "Videos" tab.
+///
+/// Accepts handles in the shapes produced by `parse_channel_results`:
+/// - `@HandleName`          -> `https://www.youtube.com/@HandleName/videos`
+/// - `channel/UCxxxx`       -> `https://www.youtube.com/channel/UCxxxx/videos`
+///
+/// Also rewrites the legacy broken shape `@UCxxxx` (from before the
+/// canonicalBaseUrl fix) into the `channel/UCxxxx` form so old
+/// subscriptions keep working.
+fn build_channel_videos_url(handle: &str) -> String {
+    let path = if let Some(rest) = handle.strip_prefix("@UC") {
+        format!("channel/UC{}", rest)
+    } else {
+        handle.to_string()
+    };
+    format!("https://www.youtube.com/{}/videos", path)
+}
+
+/// Parse videos from a channel "/videos" tab.
+///
+/// Walks `twoColumnBrowseResultsRenderer -> tabs[] -> tabRenderer.content
+/// -> richGridRenderer.contents[] -> richItemRenderer.content.videoRenderer`.
+/// Author is taken from `metadata.channelMetadataRenderer.title` when
+/// available, otherwise `fallback_author`.
+fn parse_channel_videos_tab(
+    data: &serde_json::Value,
+    limit: usize,
+    fallback_author: &str,
+) -> Vec<Video> {
+    let channel_name = data
+        .get("metadata")
+        .and_then(|m| m.get("channelMetadataRenderer"))
+        .and_then(|r| r.get("title"))
+        .and_then(|t| t.as_str())
+        .map(decode_html_entities)
+        .unwrap_or_else(|| fallback_author.to_string());
+
+    let tabs = data
+        .get("contents")
+        .and_then(|c| c.get("twoColumnBrowseResultsRenderer"))
+        .and_then(|r| r.get("tabs"))
+        .and_then(|t| t.as_array());
+
+    let Some(tabs) = tabs else {
+        return Vec::new();
+    };
+
+    // Prefer the tab whose richGridRenderer actually has contents; this is
+    // robust to YouTube reordering tabs or localizing the "Videos" label.
+    let grid_contents = tabs
+        .iter()
+        .filter_map(|tab| {
+            tab.get("tabRenderer")
+                .and_then(|t| t.get("content"))
+                .and_then(|c| c.get("richGridRenderer"))
+                .and_then(|g| g.get("contents"))
+                .and_then(|c| c.as_array())
+        })
+        .find(|items| !items.is_empty());
+
+    let Some(items) = grid_contents else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| {
+            let v = item
+                .get("richItemRenderer")
+                .and_then(|r| r.get("content"))
+                .and_then(|c| c.get("videoRenderer"))?;
+
+            let id = v.get("videoId")?.as_str()?.to_string();
+
+            let title = v
+                .get("title")
+                .and_then(|t| {
+                    t.get("runs")
+                        .and_then(|r| r.get(0))
+                        .and_then(|r| r.get("text"))
+                        .and_then(|t| t.as_str())
+                        .or_else(|| t.get("simpleText").and_then(|t| t.as_str()))
+                })
+                .map(decode_html_entities)
+                .unwrap_or_default();
+
+            let duration = v
+                .get("lengthText")
+                .and_then(|t| t.get("simpleText"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("LIVE")
+                .to_string();
+
+            let views = v
+                .get("viewCountText")
+                .and_then(|t| t.get("simpleText"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let published = v
+                .get("publishedTimeText")
+                .and_then(|t| t.get("simpleText"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let thumbnail = v
+                .get("thumbnail")
+                .and_then(|t| t.get("thumbnails"))
+                .and_then(|t| t.as_array())
+                .and_then(|t| t.last())
+                .and_then(|t| t.get("url"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            Some(Video {
+                id,
+                title,
+                author: channel_name.clone(),
+                duration,
+                views,
+                published,
+                thumbnail,
+            })
+        })
+        .take(limit)
+        .collect()
+}
+
+/// Fetch recent videos from a channel's "Videos" tab.
 pub async fn fetch_channel_videos(channel_handle: &str, limit: usize) -> Result<Vec<Video>> {
     use crate::storage::cache::{get_cache_key, get_cached, set_cache};
 
-    // Generate cache key
     let cache_key = get_cache_key(&format!("channel:{}:{}", channel_handle, limit));
 
-    // Check cache first
     if let Some(cached) = get_cached::<Vec<Video>>(&cache_key).await {
         return Ok(cached);
     }
 
-    // Build channel URL - search for channel videos
-    let search_query = format!("{} ", channel_handle);
-    let url = build_search_url(&search_query, "video");
+    let url = build_channel_videos_url(channel_handle);
     let html = fetch_youtube_html(&url).await?;
     let data = extract_yt_initial_data(&html)?;
-    let results = parse_search_results(&data, limit);
+    let results = parse_channel_videos_tab(&data, limit, channel_handle);
 
-    // Cache results
-    if !results.is_empty() {
-        let _ = set_cache(&cache_key, &results).await;
+    if results.is_empty() {
+        return Err(YtChillError::YouTubeParse(format!(
+            "no videos found for channel {}",
+            channel_handle
+        )));
     }
+
+    let _ = set_cache(&cache_key, &results).await;
 
     Ok(results)
 }
@@ -293,4 +422,3 @@ mod tests {
         assert!(url.contains("sp=EgIQAQ"));
     }
 }
-

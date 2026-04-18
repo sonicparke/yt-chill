@@ -1,7 +1,7 @@
 //! dialoguer selector implementation (fallback)
 
 use crate::types::MenuItem;
-use dialoguer::{theme::ColorfulTheme, Select};
+use dialoguer::{Select, theme::ColorfulTheme};
 
 #[derive(Default)]
 pub struct DialoguerSelector;
@@ -35,6 +35,6 @@ impl DialoguerSelector {
 
     #[allow(dead_code)]
     pub fn is_available(&self) -> bool {
-        true  // Always available as fallback
+        true // Always available as fallback
     }
 }

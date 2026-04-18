@@ -1,8 +1,8 @@
 //! Selector trait and factory
 
-use crate::types::{MenuItem, SelectorType};
-use super::fzf::FzfSelector;
 use super::dialoguer_selector::DialoguerSelector;
+use super::fzf::FzfSelector;
+use crate::types::{MenuItem, SelectorType};
 
 /// Selector enum for interactive menus
 pub enum Selector {

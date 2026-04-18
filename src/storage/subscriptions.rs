@@ -60,7 +60,10 @@ pub async fn load_subscriptions() -> Result<Vec<Subscription>> {
         // aside. Failures here are non-fatal — we still return the parsed
         // subscriptions so the user gets working behaviour today.
         if let Err(err) = save_subscriptions(&subs).await {
-            eprintln!("Warning: failed to write migrated subscriptions.json: {}", err);
+            eprintln!(
+                "Warning: failed to write migrated subscriptions.json: {}",
+                err
+            );
         } else {
             let bak = txt_path.with_extension("txt.bak");
             if let Err(err) = fs::rename(&txt_path, &bak).await {
