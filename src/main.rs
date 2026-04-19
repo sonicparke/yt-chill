@@ -12,11 +12,7 @@ mod utils;
 use clap::Parser;
 use colored::Colorize;
 
-use crate::core::{
-    downloader,
-    player::{self, MpvPlayExit},
-    youtube,
-};
+use crate::core::{downloader, player, youtube};
 use crate::storage::{config, history::History};
 use crate::types::{AppState, Config, DownloadOptions, MenuItem, PlayOptions, Video};
 use crate::ui::selector::{create_selector, detect_selector};
@@ -276,9 +272,6 @@ async fn main() -> anyhow::Result<()> {
     // State machine
     let mut state = determine_initial_state(&cli);
     let mut selected_video: Option<Video> = None;
-    // Full search result list and cursor when playback started from Search (for auto-advance).
-    let mut search_playlist: Option<Vec<Video>> = None;
-    let mut search_playlist_index: usize = 0;
     let query = cli.query.join(" ");
 
     while state != AppState::Exit {
@@ -310,7 +303,6 @@ async fn main() -> anyhow::Result<()> {
             }
 
             AppState::Search => {
-                search_playlist = None;
                 let search_query = if query.is_empty() {
                     prompt_nonempty("YouTube search")?
                 } else {
@@ -320,7 +312,6 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", "Searching…".dimmed());
                 match youtube::search_videos(&search_query, cli.limit).await {
                     Ok(videos) => {
-                        let videos_for_queue = videos.clone();
                         let menu_items: Vec<MenuItem<Video>> = videos
                             .into_iter()
                             .map(|v| MenuItem {
@@ -330,14 +321,6 @@ async fn main() -> anyhow::Result<()> {
                             .collect();
 
                         selected_video = selector.select(&menu_items, "Pick a video");
-                        if let Some(v) = &selected_video {
-                            if let Some(i) = videos_for_queue.iter().position(|x| x.id == v.id) {
-                                search_playlist = Some(videos_for_queue);
-                                search_playlist_index = i;
-                            } else {
-                                search_playlist = None;
-                            }
-                        }
                         state = if selected_video.is_some() {
                             AppState::Play
                         } else {
@@ -352,7 +335,6 @@ async fn main() -> anyhow::Result<()> {
             }
 
             AppState::History => {
-                search_playlist = None;
                 let entries = history.get_all();
 
                 if entries.is_empty() {
@@ -383,7 +365,6 @@ async fn main() -> anyhow::Result<()> {
             AppState::Feed => {
                 use crate::storage::subscriptions::load_subscriptions;
 
-                search_playlist = None;
                 // Load subscriptions
                 let subs = load_subscriptions().await?;
 
@@ -524,54 +505,18 @@ async fn main() -> anyhow::Result<()> {
                             verbose: cli.verbose,
                         };
                         match player::play(&url, &opts).await {
-                            Ok(MpvPlayExit::StreamEnded) => {
-                                let advanced = if let Some(list) = &search_playlist {
-                                    if search_playlist_index + 1 < list.len() {
-                                        search_playlist_index += 1;
-                                        selected_video = Some(list[search_playlist_index].clone());
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                };
-                                if advanced {
-                                    let n = search_playlist_index + 1;
-                                    let total =
-                                        search_playlist.as_ref().map(|l| l.len()).unwrap_or(0);
-                                    let title = selected_video
-                                        .as_ref()
-                                        .map(|v| v.title.as_str())
-                                        .unwrap_or("");
-                                    println!(
-                                        "{}",
-                                        format!("Up next ({n}/{total}): {title}").dimmed()
-                                    );
-                                    state = AppState::Play;
-                                    continue;
-                                }
-                                println!("👋 Playback finished. Thanks for chilling.");
-                                search_playlist = None;
-                                state = next_state_after_play(true);
-                                continue;
+                            Ok(player::MpvPlayExit::StreamEnded) => {
+                                play_ok = true;
                             }
-                            Ok(MpvPlayExit::BackToMenu) => {
-                                println!("👋 Playback finished. Thanks for chilling.");
-                                search_playlist = None;
-                                state = next_state_after_play(true);
-                                continue;
+                            Ok(player::MpvPlayExit::BackToMenu) => {
+                                play_ok = true;
                             }
-                            Ok(MpvPlayExit::QuitApp) => {
-                                search_playlist = None;
-                                state = next_state_after_play(false);
-                                continue;
+                            Ok(player::MpvPlayExit::QuitApp) => {
+                                play_ok = false;
                             }
                             Err(e) => {
-                                search_playlist = None;
+                                play_ok = false;
                                 eprintln!("{} {}", "Error:".red(), e);
-                                state = next_state_after_play(false);
-                                continue;
                             }
                         }
                     }
