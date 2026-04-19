@@ -21,9 +21,11 @@ pub fn build_video_url(video_id: &str) -> String {
 /// playback and exits yt-chill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MpvPlayExit {
-    /// Video ended, or user pressed **b** — return to the main menu.
+    /// mpv exit **0** — stream or file ended normally (may advance a search playlist).
+    StreamEnded,
+    /// mpv exit **10** — user pressed **b**, return to the main menu.
     BackToMenu,
-    /// User pressed **q** — exit yt-chill.
+    /// mpv exit **20** — user pressed **q**, exit yt-chill.
     QuitApp,
 }
 
@@ -60,11 +62,14 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
     let _input_cleanup = MpvInputConfFile(config_path.clone());
 
     let mut args: Vec<String> = vec![
-        "--really-quiet".into(),
         "--no-input-default-bindings".into(),
         "--input-conf".into(),
         config_path.to_string_lossy().into_owned(),
     ];
+
+    if !options.verbose {
+        args.insert(0, "--really-quiet".into());
+    }
 
     if !options.video {
         args.push("--no-video".into());
@@ -97,7 +102,8 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
         .args(&args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
-        .stderr(Stdio::null())
+        // YouTube / ytdl / audio errors go to stderr; discarding them made exit 1 impossible to debug.
+        .stderr(Stdio::inherit())
         .status()
         .await
         .map_err(|e| YtChillError::Spawn(format!("Failed to start mpv: {}", e)))?;
@@ -108,7 +114,8 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
     let code = status.code();
 
     let exit = match code {
-        Some(0) | Some(10) => MpvPlayExit::BackToMenu,
+        Some(0) => MpvPlayExit::StreamEnded,
+        Some(10) => MpvPlayExit::BackToMenu,
         Some(20) => MpvPlayExit::QuitApp,
         None => {
             return Err(YtChillError::Spawn(
@@ -117,15 +124,11 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
         }
         Some(other) => {
             return Err(YtChillError::Spawn(format!(
-                "mpv exited with unexpected code: {}",
-                other
+                "mpv exited with unexpected code: {} (YouTube playback needs yt-dlp in PATH; check audio output. Re-run with --verbose or try: mpv {:?})",
+                other, url
             )));
         }
     };
-
-    if matches!(exit, MpvPlayExit::BackToMenu) {
-        println!("👋 Playback finished. Thanks for chilling.");
-    }
 
     Ok(exit)
 }

@@ -124,6 +124,8 @@ pub struct PlayOptions {
     pub video: bool,
     /// yt-dlp format string
     pub format: Option<String>,
+    /// When true, mpv is less quiet and stderr is inherited (easier debugging).
+    pub verbose: bool,
 }
 
 /// Options for video download
