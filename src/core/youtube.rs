@@ -436,6 +436,20 @@ mod tests {
     }
 
     #[test]
+    fn build_search_url_channel_filter_includes_channel_sp() {
+        let url = build_search_url("jazz radio", "channel");
+        assert!(url.contains("search_query=jazz%20radio"));
+        assert!(url.contains("sp=EgIQAg"));
+    }
+
+    #[test]
+    fn build_search_url_unknown_filter_uses_empty_sp() {
+        let url = build_search_url("anything", "other");
+        assert!(url.contains("search_query=anything"));
+        assert!(url.ends_with("sp="));
+    }
+
+    #[test]
     fn build_channel_videos_url_handles_all_shapes() {
         assert_eq!(
             build_channel_videos_url("@Handle"),
@@ -657,6 +671,23 @@ mod tests {
         assert!(parse_channel_videos_tab(&json!({}), 10, "@x").is_empty());
     }
 
+    #[test]
+    fn extract_yt_initial_data_parses_first_script_match() {
+        let html = r#"<!doctype html><script>var ytInitialData = {"ok":true};</script><p>x</p>"#;
+        let data = extract_yt_initial_data(html).unwrap();
+        assert_eq!(data, json!({"ok": true}));
+    }
+
+    #[test]
+    fn extract_yt_initial_data_ignores_noise_before_marker() {
+        let html = concat!(
+            "<html><script>var x=1;</script>",
+            r#"<script>var ytInitialData = {"n":2};</script></html>"#
+        );
+        let data = extract_yt_initial_data(html).unwrap();
+        assert_eq!(data["n"], json!(2));
+    }
+
     #[traced_test]
     #[test]
     fn extract_yt_initial_data_emits_debug_on_regex_miss() {
@@ -671,6 +702,63 @@ mod tests {
         let err = extract_yt_initial_data(html).unwrap_err();
         assert!(err.to_string().contains("parse"), "unexpected error: {err}");
         assert!(logs_contain("yt_initial_data_json_error"));
+    }
+
+    #[test]
+    fn parse_search_results_empty_when_item_section_has_no_contents() {
+        let data = json!({
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "itemSectionRenderer": {"contents": []}
+                            }]
+                        }
+                    }
+                }
+            }
+        });
+        assert!(parse_search_results(&data, 10).is_empty());
+    }
+
+    #[test]
+    fn parse_channel_results_respects_limit() {
+        let mut data = channel_search_fixture(Some("/@A"), "UCa");
+        let item = data["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]
+            ["sectionListRenderer"]["contents"][0]["itemSectionRenderer"]["contents"][0]
+            .clone();
+        data["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]["sectionListRenderer"]
+            ["contents"][0]["itemSectionRenderer"]["contents"] = json!([item.clone(), item]);
+        assert_eq!(parse_channel_results(&data, 1).len(), 1);
+    }
+
+    #[test]
+    fn parse_channel_results_decodes_html_entities_in_name() {
+        let data = json!({
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "itemSectionRenderer": {
+                                    "contents": [{
+                                        "channelRenderer": {
+                                            "title": {"simpleText": "AT&amp;T Labs"},
+                                            "canonicalBaseUrl": "/@ATT",
+                                            "channelId": "UCx"
+                                        }
+                                    }]
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        });
+        let ch = &parse_channel_results(&data, 5)[0];
+        assert_eq!(ch.name, "AT&T Labs");
+        assert_eq!(ch.handle, "@ATT");
     }
 
     #[test]
