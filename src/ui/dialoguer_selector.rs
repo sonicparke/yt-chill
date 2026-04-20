@@ -25,10 +25,12 @@ impl DialoguerSelector {
 
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
 
+        // `interact_opt`: Enter confirms, Esc / Ctrl-C returns `None` (caller treats as cancel).
         let selection = Select::with_theme(&ColorfulTheme::default())
             .with_prompt(prompt)
             .items(&labels)
             .default(0)
+            .report(false)
             .interact_opt()
             .ok()
             .flatten()?;

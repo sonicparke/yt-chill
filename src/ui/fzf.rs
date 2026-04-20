@@ -39,6 +39,7 @@ impl FzfSelector {
                 "40%",
                 "--layout",
                 "reverse",
+                "--no-multi",
                 "--ansi",
                 "--info",
                 "inline",

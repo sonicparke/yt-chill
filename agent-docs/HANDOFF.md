@@ -2,7 +2,7 @@
 
 Living tracker of which items from [REFINEMENT.md](REFINEMENT.md) are done, in-flight, or deferred. Update this file at the end of every session.
 
-**Last updated:** 2026-04-19 (test expansion + TUI polish orchestration)
+**Last updated:** 2026-04-20 (TUI polish — menu resume + copy)
 **Current branch:** `main` (all pushed to `origin/main`)
 
 ---
@@ -17,6 +17,26 @@ Living tracker of which items from [REFINEMENT.md](REFINEMENT.md) are done, in-f
 ---
 
 ## Completed
+
+### Session 2026-04-20 — TUI polish (orchestration prompt)
+
+Executed in-repo (single workspace) per [TUI_POLISH_AUTONOMOUS_ORCHESTRATION_PROMPT.md](TUI_POLISH_AUTONOMOUS_ORCHESTRATION_PROMPT.md). No separate git worktrees; **T4 skipped** (playback copy already in good shape from prior pass).
+
+**T1 — [`src/main.rs`](../src/main.rs)**
+
+- `started_from_main_menu`: plain `yt-chill` sessions return to the main menu after cancel, empty search results, recoverable search errors, empty history/feed, or backing out of a video/history/feed picker; one-shot CLI (`--history`, `--feed`, `--subscribe`, or a query on argv) still exits on those paths.
+- Clearer empty-state and feed-failure copy; subscribe flow handles empty channel results and optional “Subscribe cancelled.” on Esc.
+- Selector prompts aligned (“Choose a video / from history / from feed / a channel”).
+
+**T2 — [`src/ui/dialoguer_selector.rs`](../src/ui/dialoguer_selector.rs), [`src/utils/flow.rs`](../src/utils/flow.rs)**
+
+- `next_state_after_skipped_flow` + unit tests; dialoguer `Select` uses `.report(false)` and a short cancel/confirm comment.
+
+**T3 — [`src/ui/fzf.rs`](../src/ui/fzf.rs)**
+
+- Explicit `--no-multi` for consistent single-select behavior.
+
+**Verification:** `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` — **54** unit tests.
 
 ### Session 2026-04-19 — Test expansion + TUI polish
 

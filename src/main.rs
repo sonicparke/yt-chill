@@ -16,7 +16,7 @@ use crate::core::{downloader, player, youtube};
 use crate::storage::{config, history::History};
 use crate::types::{AppState, Config, DownloadOptions, MenuItem, PlayOptions, Video};
 use crate::ui::selector::{create_selector, detect_selector};
-use crate::utils::flow::next_state_after_play;
+use crate::utils::flow::{next_state_after_play, next_state_after_skipped_flow};
 use crate::utils::paths::{ensure_app_dirs, get_history_path};
 use crate::utils::playback::use_syncplay;
 use crate::utils::process::is_command_available;
@@ -269,6 +269,10 @@ async fn main() -> anyhow::Result<()> {
     // Create selector
     let selector = create_selector(detect_selector());
 
+    // Plain `yt-chill` (no flags / query): cancelled flows return to the menu.
+    // One-shot CLI invocations exit on cancel or empty results.
+    let started_from_main_menu = matches!(determine_initial_state(&cli), AppState::Init);
+
     // State machine
     let mut state = determine_initial_state(&cli);
     let mut selected_video: Option<Video> = None;
@@ -312,6 +316,15 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", "Searching…".dimmed());
                 match youtube::search_videos(&search_query, cli.limit).await {
                     Ok(videos) => {
+                        if videos.is_empty() {
+                            println!(
+                                "{}",
+                                "No results for that search — try different words.".yellow()
+                            );
+                            state = next_state_after_skipped_flow(started_from_main_menu);
+                            continue;
+                        }
+
                         let menu_items: Vec<MenuItem<Video>> = videos
                             .into_iter()
                             .map(|v| MenuItem {
@@ -320,16 +333,16 @@ async fn main() -> anyhow::Result<()> {
                             })
                             .collect();
 
-                        selected_video = selector.select(&menu_items, "Pick a video");
+                        selected_video = selector.select(&menu_items, "Choose a video");
                         state = if selected_video.is_some() {
                             AppState::Play
                         } else {
-                            AppState::Exit
+                            next_state_after_skipped_flow(started_from_main_menu)
                         };
                     }
                     Err(e) => {
                         eprintln!("{} {}", "Error:".red(), e);
-                        state = AppState::Exit;
+                        state = next_state_after_skipped_flow(started_from_main_menu);
                     }
                 }
             }
@@ -342,7 +355,7 @@ async fn main() -> anyhow::Result<()> {
                         "{}",
                         "No watch history yet — play something from Search first.".yellow()
                     );
-                    state = AppState::Exit;
+                    state = next_state_after_skipped_flow(started_from_main_menu);
                     continue;
                 }
 
@@ -354,11 +367,11 @@ async fn main() -> anyhow::Result<()> {
                     })
                     .collect();
 
-                selected_video = selector.select(&menu_items, "Pick a history entry");
+                selected_video = selector.select(&menu_items, "Choose from history");
                 state = if selected_video.is_some() {
                     AppState::Play
                 } else {
-                    AppState::Exit
+                    next_state_after_skipped_flow(started_from_main_menu)
                 };
             }
 
@@ -371,9 +384,10 @@ async fn main() -> anyhow::Result<()> {
                 if subs.is_empty() {
                     println!(
                         "{}",
-                        "No subscriptions yet. Use --subscribe or the menu item above.".yellow()
+                        "No subscriptions yet — add one from the menu or run with --subscribe."
+                            .yellow()
                     );
-                    state = AppState::Exit;
+                    state = next_state_after_skipped_flow(started_from_main_menu);
                     continue;
                 }
 
@@ -403,15 +417,16 @@ async fn main() -> anyhow::Result<()> {
                 }
 
                 for (name, err) in &failures {
-                    eprintln!("{} {}: {}", "warn:".yellow(), name, err);
+                    eprintln!("{} {} — {}", "Couldn't load".dimmed(), name, err);
                 }
 
                 if all_videos.is_empty() {
                     println!(
                         "{}",
-                        "No videos loaded — check your connection or try again later.".yellow()
+                        "No feed videos loaded — check your connection or try again later."
+                            .yellow()
                     );
-                    state = AppState::Exit;
+                    state = next_state_after_skipped_flow(started_from_main_menu);
                     continue;
                 }
 
@@ -424,11 +439,11 @@ async fn main() -> anyhow::Result<()> {
                     })
                     .collect();
 
-                selected_video = selector.select(&menu_items, "Pick a feed video");
+                selected_video = selector.select(&menu_items, "Choose from feed");
                 state = if selected_video.is_some() {
                     AppState::Play
                 } else {
-                    AppState::Exit
+                    next_state_after_skipped_flow(started_from_main_menu)
                 };
             }
 
@@ -451,7 +466,14 @@ async fn main() -> anyhow::Result<()> {
                             })
                             .collect();
 
-                        if let Some(channel) = selector.select(&menu_items, "Pick a channel") {
+                        if menu_items.is_empty() {
+                            println!(
+                                "{}",
+                                "No channels matched — try a different name or topic.".yellow()
+                            );
+                        } else if let Some(channel) =
+                            selector.select(&menu_items, "Choose a channel")
+                        {
                             let sub = Subscription {
                                 name: channel.name.clone(),
                                 handle: channel.handle.clone(),
@@ -462,16 +484,22 @@ async fn main() -> anyhow::Result<()> {
                                     println!("{} Subscribed to {}", "✓".green(), channel.name);
                                 }
                                 Err(e) => {
-                                    eprintln!("{} Failed to subscribe: {}", "Error:".red(), e);
+                                    eprintln!("{} Couldn't subscribe: {}", "Error:".red(), e);
                                 }
                             }
+                        } else if started_from_main_menu {
+                            println!("{}", "Subscribe cancelled.".dimmed());
                         }
                     }
                     Err(e) => {
                         eprintln!("{} {}", "Error:".red(), e);
                     }
                 }
-                state = AppState::Exit;
+                state = if started_from_main_menu {
+                    AppState::Init
+                } else {
+                    AppState::Exit
+                };
             }
 
             AppState::Play => {
