@@ -2,7 +2,7 @@
 
 Living tracker of which items from [REFINEMENT.md](REFINEMENT.md) are done, in-flight, or deferred. Update this file at the end of every session.
 
-**Last updated:** 2026-04-20 (TUI polish — menu resume + copy)
+**Last updated:** 2026-04-20 (test expansion — helpers, config, YouTube parser)
 **Current branch:** `main` (all pushed to `origin/main`)
 
 ---
@@ -17,6 +17,24 @@ Living tracker of which items from [REFINEMENT.md](REFINEMENT.md) are done, in-f
 ---
 
 ## Completed
+
+### Session 2026-04-20 — test expansion (autonomous orchestration)
+
+Executed per [TEST_EXPANSION_AUTONOMOUS_ORCHESTRATION_PROMPT.md](../TEST_EXPANSION_AUTONOMOUS_ORCHESTRATION_PROMPT.md) using git worktrees under `/Users/bradmcalister/DEV/yt-chill-wt/`. Merged `cursor/s1-helper-config-tests` then `cursor/s2-youtube-parser-tests` into `main` with `--no-ff`; gates after each merge; pushed to `origin/main`. **S3 skipped** — `src/utils/flow.rs` already has focused unit tests from the prior session; no new pure extraction was justified.
+
+**S1 —** [`src/storage/cache.rs`](../src/storage/cache.rs), [`src/storage/config.rs`](../src/storage/config.rs), [`src/utils/process.rs`](../src/utils/process.rs)
+
+- Cache TTL boundary, “future” timestamps, and unicode cache key stability.
+- `resolve_download_dir` (empty default, tilde, absolute paths); selector normalization edges (`dialoguer`, missing key, `rofi` substring false positive).
+- `split_path_var` empty / separator-only inputs; Unix `resolve_executable_in_path` prefers the first matching `PATH` directory.
+
+**S2 —** [`src/core/youtube.rs`](../src/core/youtube.rs)
+
+- `build_search_url` channel filter and unknown-filter `sp` behavior.
+- Successful `extract_yt_initial_data` parsing (including ignored script noise before the marker).
+- Search/channel fixtures: empty `itemSectionRenderer.contents`, channel `take(limit)`, HTML entities in channel titles.
+
+**Verification:** `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` — **73** unit tests (**+19** vs `54` on pre-merge base `361d034`).
 
 ### Session 2026-04-20 — TUI polish (orchestration prompt)
 
