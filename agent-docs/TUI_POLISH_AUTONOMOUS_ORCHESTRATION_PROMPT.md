@@ -23,12 +23,21 @@ You are the **parent orchestrator** for a **TUI polish pass** on the `yt-chill` 
 4. **Scope:** Polish the TUI only. Favor **better copy, clearer prompts, smoother flow, more consistent selector behavior, and cleaner status output**. Do **not** broaden into unrelated backend/parser/storage work unless strictly required for a TUI behavior change.
 5. **Testing posture:** Add/update tests where a small focused test materially locks behavior. Do **not** force brittle interactive end-to-end TUI tests if they add more noise than safety.
 6. **Merging:** After a subagent returns, merge with `git merge --no-ff <branch> -m "Merge <branch>: <short summary>"`. Resolve conflicts manually; keep the most polished user-facing result, not whichever side happens to compile first.
-7. **HANDOFF.md:** Add a `### Session YYYY-MM-DD` note describing the TUI polish run, update **Last updated**, and summarize the user-visible improvements landed in this run. Do **not** reopen or uncheck completed items.
+7. **HANDOFF:** Add a `### Session YYYY-MM-DD` note in **`agent-docs/HANDOFF.md`** describing the TUI polish run, update **Last updated**, and summarize the user-visible improvements landed in this run. Do **not** reopen or uncheck completed items.
 8. **Cleanup:** Remove worktrees when done: `git worktree remove <path>` and `git branch -d <branch>` for merged topic branches if safe.
 
 ### Critical ownership rule
 
-`src/main.rs` is the highest-conflict file in this repo. Only **one active slice** may own it at a time. If later slices need `src/main.rs`, they must branch from the **post-merge `main` SHA** of the previous `main.rs`-touching slice. Do **not** run multiple parallel branches that all edit `src/main.rs`.
+`src/main.rs` is **shared state** and the highest-conflict file in this repo. Only **one active slice** may own it at a time. If later slices need `src/main.rs`, they must branch from the **post-merge `main` SHA** of the previous `main.rs`-touching slice and **rebase** their branch onto that SHA before merge—do **not** run multiple parallel branches that all edit `src/main.rs`.
+
+### Target code areas (orientation)
+
+- `src/main.rs` — menus, prompts, flow, CLI-facing copy  
+- `src/ui/selector.rs` — selector trait / factory seams (polish only; coordinate with T2)  
+- `src/ui/dialoguer_selector.rs` — dialoguer UX  
+- `src/ui/fzf.rs` — fzf prompts, flags, layout  
+- Optionally `src/core/player.rs` — playback / status messaging (see T4)  
+- `README.md` (repo root) **only** if user-visible behavior or install/config story changes
 
 ### Recommended polish rubric
 
@@ -51,39 +60,45 @@ You are the **parent orchestrator** for a **TUI polish pass** on the `yt-chill` 
   - Make post-action flow feel deliberate: menu returns, cancellations, and one-shot commands should read cleanly and avoid awkward dead ends where practical.
   - Keep behavior changes **small and user-facing**; do not re-architect beyond what is needed for polish.
   - Add focused tests only if you extract a small pure helper to lock a new flow/copy rule.
-- **Gate:** `cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test`
+- **Gate:** `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`
 
 **Merge T1:** checkout `main` → merge **T1** → gates → push.
 
 ---
 
-### Wave T2 — dialoguer UX polish (after T1 is merged)
+### Merge order (conflict avoidance)
+
+Default **sequential** order: **T1 → T2 → T3 → (optional T4)**. After T1, **T2** and **T3** may run **in parallel subagents** only if **T2** stays confined to `src/ui/dialoguer_selector.rs` and `src/ui/selector.rs` (no `src/main.rs` edits). If T2 needs `main.rs`, run **T2 then T3** sequentially.
+
+---
+
+### Wave T2 — dialoguer + selector seam polish (after T1 is merged)
 
 - **Branch:** `cursor/t2-dialoguer-ux-polish`  
 - **Worktree:** `"$WT_PARENT/t2-dialoguer-ux-polish"`  
 - **Base:** `origin/main` **after T1 fully merged and pushed**
-- **Files:** `src/ui/dialoguer_selector.rs` (`src/main.rs` only if absolutely necessary and only from the post-T1 SHA)
+- **Files:** `src/ui/dialoguer_selector.rs`, `src/ui/selector.rs` (`src/main.rs` only if absolutely necessary and only from the post-T1 SHA)
 - **Spec:**  
   - Improve dialoguer-based selection UX: prompt clarity, default behavior, cancel handling, and any theme/setup polish that increases consistency with the rest of the app.
   - Prefer local improvements in `dialoguer_selector.rs`; only touch `main.rs` if an integration seam truly needs adjustment.
   - Add narrow tests if a pure adapter/helper is introduced; otherwise validate manually and keep the branch small.
-- **Gate:** `cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test`
+- **Gate:** `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`
 
 **Merge T2:** checkout `main` → merge **T2** → gates → push.
 
 ---
 
-### Wave T3 — fzf UX polish (parallel with T2 only if it avoids `main.rs`)
+### Wave T3 — fzf UX polish (after T1; parallel with T2 only under the merge-order rule above)
 
 - **Branch:** `cursor/t3-fzf-ux-polish`  
 - **Worktree:** `"$WT_PARENT/t3-fzf-ux-polish"`  
-- **Base:** `origin/main` **after T1 fully merged and pushed**
+- **Base:** `origin/main` **after T1 fully merged and pushed** (same pre-merge SHA as T2 if running T2∥T3 in parallel; otherwise after T2 if T2 touched `main.rs`)
 - **Files:** `src/ui/fzf.rs`
 - **Spec:**  
   - Polish `fzf` prompt/flags/layout so it feels consistent with the app’s other prompts.
   - Favor improvements such as clearer prompt text, stable layout defaults, and output handling that reduces visual rough edges.
   - Do **not** add shell-dependent tests that are likely to be flaky in CI. Keep this slice simple and robust.
-- **Gate:** `cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test`
+- **Gate:** `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`
 
 **Merge T3:** checkout `main` → merge **T3** → gates → push.
 
@@ -100,7 +115,7 @@ Run this **only if** T1–T3 reveal obvious remaining rough edges in playback/st
 - **Spec:**  
   - Refine buffering / playing / completion / failure messages so they match the polished TUI tone.
   - Preserve current functionality and avoid reworking playback internals.
-- **Gate:** `cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test`
+- **Gate:** `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`
 
 **Merge T4:** checkout `main` → merge **T4** → gates → push.
 
@@ -108,7 +123,7 @@ Run this **only if** T1–T3 reveal obvious remaining rough edges in playback/st
 
 ### Finalization
 
-1. Update `HANDOFF.md` with a new `### Session YYYY-MM-DD — TUI polish` section that records:
+1. Update `agent-docs/HANDOFF.md` with a new `### Session YYYY-MM-DD — TUI polish` section that records:
    - which slices ran,
    - what user-facing TUI changes landed,
    - any notable manual verification performed,
@@ -119,7 +134,7 @@ Run this **only if** T1–T3 reveal obvious remaining rough edges in playback/st
 
 - [ ] `main` at `origin/main` with all intended TUI slices merged.  
 - [ ] Last run: `cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test` **green**.  
-- [ ] `HANDOFF.md` has a new session note for this TUI polish run.  
+- [ ] `agent-docs/HANDOFF.md` has a new session note for this TUI polish run.  
 - [ ] Worktrees removed; obsolete local branches pruned where safe.  
 - [ ] Final user summary lists merged branches, any conflicts resolved, and whether playback/status messaging needed a separate T4 pass.
 
@@ -134,5 +149,5 @@ Fall back to **sequential worktrees** yourself: same branches, same ownership ru
 ### Notes for the human (not part of the agent paste)
 
 - T1 intentionally owns `src/main.rs` first to reduce merge churn.
-- T2 and T3 can run in parallel **only if** T2 stays out of `src/main.rs`; otherwise run T2 then T3.
+- T2 and T3 can run in parallel **only if** T2 stays out of `src/main.rs`; otherwise run T2 then T3 (see **Merge order** above).
 - This prompt is intentionally lighter than a feature/refactor plan: it optimizes for user-facing finish, not architecture change.
