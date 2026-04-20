@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2024"
 description = "YouTube audio in your terminal. Clean and distraction-free."
 license = "MIT"
-repository = "https://github.com/sonicparke/yt-chill-rs"
+repository = "https://github.com/sonicparke/yt-chill"
 
 [[bin]]
 name = "yt-chill"
