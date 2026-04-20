@@ -146,4 +146,64 @@ mod tests {
         assert_eq!(cfg.selector, SelectorType::default());
         Ok(())
     }
+
+    #[test]
+    fn resolve_download_dir_absolute_path_unchanged() {
+        assert_eq!(
+            resolve_download_dir("/var/tmp/yt-chill-downloads"),
+            "/var/tmp/yt-chill-downloads"
+        );
+    }
+
+    #[test]
+    fn resolve_download_dir_empty_uses_default_and_non_empty() {
+        let resolved = resolve_download_dir("");
+        assert!(!resolved.is_empty());
+        assert!(
+            !resolved.contains('~'),
+            "download dir should be tilde-expanded: {resolved}"
+        );
+    }
+
+    #[test]
+    fn resolve_download_dir_expands_leading_tilde() {
+        let resolved = resolve_download_dir("~/Music/yt-chill");
+        assert!(
+            resolved.ends_with("Music/yt-chill") || resolved.ends_with(r"Music\yt-chill"),
+            "unexpected path: {resolved}"
+        );
+        assert!(!resolved.contains('~'));
+    }
+
+    #[test]
+    fn normalize_selector_leaves_dialoguer_unchanged() -> Result<()> {
+        let mut v: serde_json::Value =
+            serde_json::from_str(r#"{"selector": "dialoguer"}"#).unwrap();
+        normalize_selector_in_json(&mut v);
+        let cfg: Config = serde_json::from_value(v)?;
+        assert_eq!(cfg.selector, SelectorType::Dialoguer);
+        Ok(())
+    }
+
+    #[test]
+    fn normalize_selector_does_not_map_rofi_substring() -> Result<()> {
+        let mut v: serde_json::Value =
+            serde_json::from_str(r#"{"selector": "rofi-inspired"}"#).unwrap();
+        normalize_selector_in_json(&mut v);
+        let err = serde_json::from_value::<Config>(v).unwrap_err();
+        assert!(
+            err.to_string().to_ascii_lowercase().contains("selector")
+                || err.to_string().contains("unknown"),
+            "unexpected err: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn normalize_selector_missing_key_is_noop() {
+        let mut v: serde_json::Value = serde_json::from_str(r#"{"limit": 2}"#).unwrap();
+        let before = v.clone();
+        normalize_selector_in_json(&mut v);
+        assert_eq!(v, before);
+    }
 }
