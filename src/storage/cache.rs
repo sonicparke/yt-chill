@@ -134,6 +134,27 @@ mod tests {
     }
 
     #[test]
+    fn entry_exactly_at_ttl_boundary_is_still_fresh() {
+        let now = 2_000_000i64;
+        // Condition is strict `>` so age == ttl is not expired.
+        assert!(!is_expired(now - 3600, 3600, now));
+        assert!(is_expired(now - 3601, 3600, now));
+    }
+
+    #[test]
+    fn entry_newer_than_now_is_not_expired() {
+        let now = 500_000i64;
+        assert!(!is_expired(now + 60, 3600, now));
+    }
+
+    #[test]
+    fn cache_key_unicode_query_is_stable() {
+        let q = "café 日本語 🔊";
+        assert_eq!(get_cache_key(q), get_cache_key(q));
+        assert_eq!(get_cache_key(q).len(), 64);
+    }
+
+    #[test]
     fn cache_key_video_search_matches_legacy_format() {
         for (q, n) in [("lofi", 15usize), ("café", 1usize), ("", 0usize)] {
             assert_eq!(
