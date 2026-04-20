@@ -52,9 +52,14 @@ pub fn resolve_executable_in_path(executable: &str, path_entries: &[String]) -> 
 
 /// True if `cmd` exists as an executable somewhere on `PATH`.
 pub fn is_command_available(cmd: &str) -> bool {
+    resolve_on_path(cmd).is_some()
+}
+
+/// Resolve `cmd` against the current `PATH`, returning its absolute path.
+pub fn resolve_on_path(cmd: &str) -> Option<PathBuf> {
     let path = std::env::var("PATH").unwrap_or_default();
     let entries = split_path_var(&path);
-    resolve_executable_in_path(cmd, &entries).is_some()
+    resolve_executable_in_path(cmd, &entries)
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 
 use crate::error::{Result, YtChillError};
 use crate::types::PlayOptions;
-use crate::utils::process::is_command_available;
+use crate::utils::process::{is_command_available, resolve_on_path};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -63,9 +63,18 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
 
     let mut args: Vec<String> = vec![
         "--no-input-default-bindings".into(),
-        "--input-conf".into(),
-        config_path.to_string_lossy().into_owned(),
+        format!("--input-conf={}", config_path.to_string_lossy()),
     ];
+
+    // Pin mpv's ytdl_hook to the yt-dlp on PATH. Without this, mpv may fall back to
+    // a stale bundled youtube-dl and fail on videos the newer yt-dlp can extract
+    // (e.g. ones where web/web_safari return UNPLAYABLE but android_vr works).
+    if let Some(ytdl) = resolve_on_path("yt-dlp") {
+        args.push(format!(
+            "--script-opts=ytdl_hook-ytdl_path={}",
+            ytdl.to_string_lossy()
+        ));
+    }
 
     if !options.verbose {
         args.insert(0, "--really-quiet".into());
