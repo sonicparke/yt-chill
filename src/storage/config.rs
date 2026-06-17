@@ -78,6 +78,7 @@ pub async fn edit_config(editor: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::player::AUDIO_ONLY_FORMAT;
     use crate::error::Result;
     use crate::types::SelectorType;
 
@@ -144,6 +145,25 @@ mod tests {
         let cfg: Config = serde_json::from_str(r#"{"limit": 4}"#)?;
         assert_eq!(cfg.limit, 4);
         assert_eq!(cfg.selector, SelectorType::default());
+        assert_eq!(cfg.audio_format.as_deref(), Some(AUDIO_ONLY_FORMAT));
+        assert_eq!(cfg.video_format, None);
+        Ok(())
+    }
+
+    #[test]
+    fn config_json_accepts_custom_playback_formats() -> Result<()> {
+        let cfg: Config = serde_json::from_str(
+            r#"{
+                "audio_format": "251/bestaudio",
+                "video_format": "bestvideo[height<=480]+bestaudio/best"
+            }"#,
+        )?;
+
+        assert_eq!(cfg.audio_format.as_deref(), Some("251/bestaudio"));
+        assert_eq!(
+            cfg.video_format.as_deref(),
+            Some("bestvideo[height<=480]+bestaudio/best")
+        );
         Ok(())
     }
 

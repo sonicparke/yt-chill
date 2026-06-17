@@ -4,7 +4,7 @@ YouTube audio in your terminal. Clean and distraction-free.
 
 ## What it does
 
-Search YouTube, pick a video, and it starts streaming audio immediately. No menus, no fuss. Results are cached for an hour so repeat searches are instant.
+Search YouTube, pick a video, and it starts streaming audio immediately through mpv + yt-dlp. Audio-only playback requests an audio-only YouTube format by default, instead of downloading video data and hiding it. Results are cached for an hour so repeat searches are instant.
 
 ## Quick Start
 
@@ -82,12 +82,16 @@ Stored at `~/.config/yt-chill/config.json`:
   "download_dir": "~/Downloads",
   "max_history_entries": 100,
   "editor": "nvim",
+  "audio_format": "bestaudio[abr<=160]/bestaudio/best",
+  "video_format": null,
   "player": "mpv",
   "selector": "fzf"
 }
 ```
 
-Legacy configs may still contain a `"selector": "rofi"` entry; that value is mapped to the dialoguer-based selector on load. Unknown fields (for example an old `"notify"` key) are ignored by serde.
+`audio_format` and `video_format` are yt-dlp format selectors used for streaming playback. Audio-only playback defaults to `bestaudio[abr<=160]/bestaudio/best`; video playback does not force a default selector unless you set `video_format`.
+
+Legacy configs may still contain a `"selector": "rofi"` entry; that value is mapped to the dialoguer-based selector on load. Unknown fields (for example an old `"notify"` key) are ignored by serde, and configs missing newer fields use defaults.
 
 ### Syncplay
 

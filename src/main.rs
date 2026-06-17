@@ -527,9 +527,14 @@ async fn main() -> anyhow::Result<()> {
                 let mut play_ok = true;
                 match action {
                     "stream" => {
+                        let format = if cli.video {
+                            cfg.video_format.clone()
+                        } else {
+                            cfg.audio_format.clone()
+                        };
                         let opts = PlayOptions {
                             video: cli.video,
-                            format: None,
+                            format,
                             verbose: cli.verbose,
                         };
                         match player::play(&url, &opts).await {

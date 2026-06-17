@@ -2,6 +2,7 @@
 //!
 //! Source of truth for all data structures.
 
+use crate::core::player::AUDIO_ONLY_FORMAT;
 use serde::{Deserialize, Serialize};
 
 // ============================================
@@ -93,6 +94,10 @@ pub struct Config {
     pub max_history_entries: usize,
     /// Editor command (default: `$EDITOR`, falling back to `vi`)
     pub editor: String,
+    /// yt-dlp format string for audio-only playback
+    pub audio_format: Option<String>,
+    /// yt-dlp format string for video playback
+    pub video_format: Option<String>,
     /// Video player
     pub player: PlayerType,
     /// Menu selector
@@ -107,6 +112,8 @@ impl Default for Config {
             download_dir: String::new(), // Set at runtime to ~/Downloads
             max_history_entries: 100,
             editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".into()),
+            audio_format: Some(AUDIO_ONLY_FORMAT.into()),
+            video_format: None,
             player: PlayerType::default(),
             selector: SelectorType::default(),
         }
