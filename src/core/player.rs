@@ -84,6 +84,9 @@ fn build_mpv_args(
         "--input-conf={}",
         input_conf_path.to_string_lossy()
     ));
+    // mpv's volume is its internal software mixer, so system output volume
+    // remains a downstream multiplier.
+    // Source: https://mpv.io/manual/master/#options-volume
     args.push(format!("--volume={}", options.volume));
     args.push("--volume-max=100".into());
 
@@ -335,7 +338,9 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "--volume=50"));
         assert!(args.iter().any(|arg| arg == "--volume-max=100"));
         assert_eq!(
-            args.iter().filter(|arg| arg.starts_with("--volume=")).count(),
+            args.iter()
+                .filter(|arg| arg.starts_with("--volume="))
+                .count(),
             1
         );
         assert_inline_option(&args, "--volume");

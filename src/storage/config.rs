@@ -176,7 +176,11 @@ mod tests {
     fn config_rejects_app_volume_above_one_hundred() {
         let cfg: Config = serde_json::from_value(json!({ "volume": 101 })).unwrap();
         let error = validate_config(&cfg).unwrap_err();
-        assert!(error.to_string().contains("volume must be between 0 and 100"));
+        assert!(
+            error
+                .to_string()
+                .contains("volume must be between 0 and 100")
+        );
     }
 
     #[test]

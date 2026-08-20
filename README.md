@@ -25,6 +25,7 @@ This crate is **not published on crates.io** yet; install with `cargo install --
 ```bash
 yt-chill "chill beats"           # Stream audio (default)
 yt-chill --video "music video"   # Stream with video
+yt-chill --volume 50 "chill"     # Play at 50% of system output
 yt-chill -d "song name"          # Download as MP3
 yt-chill -d --video "tutorial"   # Download as MP4
 yt-chill --history               # Replay from history
@@ -37,7 +38,7 @@ yt-chill -e                      # Edit config
 While playing (mpv):
 - **Space** — Pause/resume
 - **←/→** — Seek backward/forward
-- **↑/↓** — Volume up/down
+- **↑/↓** — yt-chill volume up/down by 2% for the current playback
 - **b** — Stop playback and return to the main menu
 - **q** — Stop playback and exit yt-chill
 
@@ -54,6 +55,7 @@ While playing (mpv):
 | `-F, --feed` | View videos from subscribed channels |
 | `--syncplay` | Watch with friends via Syncplay (see **Syncplay** below) |
 | `-l, --limit <N>` | Limit search results (default: 15) |
+| `--volume <0-100>` | Override yt-chill's configured volume for this run |
 | `-e, --edit` | Edit config file |
 | `-v, --verbose` | Verbose logs (YouTube parse diagnostics on stderr) |
 
@@ -85,11 +87,16 @@ Stored at `~/.config/yt-chill/config.json`:
   "audio_format": "bestaudio[abr<=160]/bestaudio/best",
   "video_format": null,
   "player": "mpv",
+  "volume": 100,
   "selector": "fzf"
 }
 ```
 
 `audio_format` and `video_format` are yt-dlp format selectors used for streaming playback. Audio-only playback defaults to `bestaudio[abr<=160]/bestaudio/best`; video playback does not force a default selector unless you set `video_format`.
+
+`volume` is yt-chill's persistent software volume from `0` to `100`. It is relative to system output volume: if yt-chill is at 50% and system volume changes from 50% to 30%, yt-chill stays at 50% of the new system level (conceptually 15% of full output). `--volume` overrides the configured value for one run. ↑/↓ changes only the current playback session and never changes system volume or rewrites the config.
+
+Volume settings apply to direct mpv streaming in audio and video modes. Downloads have no playback volume, and Syncplay uses its own volume controls.
 
 Legacy configs may still contain a `"selector": "rofi"` entry; that value is mapped to the dialoguer-based selector on load. Unknown fields (for example an old `"notify"` key) are ignored by serde, and configs missing newer fields use defaults.
 

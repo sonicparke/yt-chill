@@ -18,7 +18,7 @@ use crate::types::{AppState, Config, DownloadOptions, MenuItem, PlayOptions, Vid
 use crate::ui::selector::{create_selector, detect_selector};
 use crate::utils::flow::{next_state_after_play, next_state_after_skipped_flow};
 use crate::utils::paths::{ensure_app_dirs, get_history_path};
-use crate::utils::playback::use_syncplay;
+use crate::utils::playback::{resolve_volume, use_syncplay};
 use crate::utils::process::is_command_available;
 
 /// YouTube audio in your terminal. Clean and distraction-free.
@@ -57,6 +57,10 @@ struct Cli {
     /// Limit search results
     #[arg(short, long, default_value = "15")]
     limit: usize,
+
+    /// yt-chill volume relative to system volume (0-100)
+    #[arg(long, value_name = "PERCENT", value_parser = clap::value_parser!(u8).range(0..=100))]
+    volume: Option<u8>,
 
     /// Edit the configuration file
     #[arg(short, long)]
@@ -536,7 +540,7 @@ async fn main() -> anyhow::Result<()> {
                             video: cli.video,
                             format,
                             verbose: cli.verbose,
-                            volume: cfg.volume,
+                            volume: resolve_volume(cli.volume, cfg.volume),
                         };
                         match player::play(&url, &opts).await {
                             Ok(player::MpvPlayExit::StreamEnded) => {
@@ -574,6 +578,12 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
                     "syncplay" => {
+                        if cli.volume.is_some() {
+                            eprintln!(
+                                "{} --volume is ignored with Syncplay; use Syncplay's volume controls.",
+                                "Note:".yellow()
+                            );
+                        }
                         if let Err(e) = player::play_with_syncplay(&url).await {
                             play_ok = false;
                             eprintln!("{} {}", "Error:".red(), e);
@@ -590,4 +600,29 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_accepts_volume_from_zero_through_one_hundred() {
+        for volume in [0_u8, 50, 100] {
+            let cli = Cli::try_parse_from([
+                "yt-chill".to_string(),
+                "--volume".to_string(),
+                volume.to_string(),
+                "test".to_string(),
+            ])
+            .unwrap();
+            assert_eq!(cli.volume, Some(volume));
+        }
+    }
+
+    #[test]
+    fn cli_rejects_volume_outside_the_supported_range() {
+        assert!(Cli::try_parse_from(["yt-chill", "--volume", "101", "test"]).is_err());
+        assert!(Cli::try_parse_from(["yt-chill", "--volume=-1", "test"]).is_err());
+    }
 }
