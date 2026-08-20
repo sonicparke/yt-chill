@@ -66,6 +66,7 @@ fn resolve_download_dir(raw: &str) -> String {
 
 /// Save configuration to file
 pub async fn save_config(config: &Config) -> Result<()> {
+    validate_config(config)?;
     ensure_dir(&get_config_dir()).await?;
     let content = serde_json::to_string_pretty(config)?;
     fs::write(get_config_path(), content).await?;

@@ -195,7 +195,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
         tokio::time::sleep(Duration::from_secs(6)).await;
         vibing_spinner.finish_and_clear();
         println!(
-            "🎵 Playing — yt-chill volume {starting_volume}% (relative to system); ↑/↓ volume, space pause, b menu, q quit."
+            "🎵 Playing — yt-chill started at {starting_volume}% (relative to system); ↑/↓ volume, space pause, b menu, q quit."
         );
     });
 
