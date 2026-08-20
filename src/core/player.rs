@@ -74,7 +74,9 @@ fn build_mpv_args(
     let mut args: Vec<String> = Vec::new();
 
     if !options.verbose {
-        args.push("--really-quiet".into());
+        // Keep mpv's normal chatter down without suppressing the yt-dlp/ffmpeg
+        // errors that explain playback failures.
+        args.push("--quiet".into());
     }
 
     args.push("--no-input-default-bindings".into());
@@ -129,6 +131,12 @@ fn mpv_termination_error(stderr: &[u8]) -> YtChillError {
     }
 
     YtChillError::Spawn("mpv terminated without an exit code (signal?)".into())
+}
+
+fn mpv_unexpected_exit_error(code: i32, url: &str) -> YtChillError {
+    YtChillError::Playback(format!(
+        "mpv exited with code {code}. See the mpv/yt-dlp error above; re-run with --verbose for more detail or try: mpv {url:?}"
+    ))
 }
 
 async fn check_mpv_starts() -> Result<()> {
@@ -203,12 +211,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
         Some(10) => MpvPlayExit::BackToMenu,
         Some(20) => MpvPlayExit::QuitApp,
         None => return Err(mpv_termination_error(&[])),
-        Some(other) => {
-            return Err(YtChillError::Spawn(format!(
-                "mpv exited with unexpected code: {} (YouTube playback needs yt-dlp in PATH; check audio output. Re-run with --verbose or try: mpv {:?})",
-                other, url
-            )));
-        }
+        Some(other) => return Err(mpv_unexpected_exit_error(other, url)),
     };
 
     Ok(exit)
@@ -290,6 +293,27 @@ mod tests {
         assert_inline_option(&args, "--input-conf");
         assert_inline_option(&args, "--script-opts");
         assert_inline_option(&args, "--ytdl-format");
+    }
+
+    #[test]
+    fn non_verbose_playback_keeps_mpv_errors_visible() {
+        let args = args_for(PlayOptions {
+            video: false,
+            format: None,
+            verbose: false,
+        });
+
+        assert!(args.iter().any(|arg| arg == "--quiet"));
+        assert!(!args.iter().any(|arg| arg == "--really-quiet"));
+    }
+
+    #[test]
+    fn unexpected_mpv_exit_is_reported_as_playback_failure() {
+        let error = mpv_unexpected_exit_error(2, "https://example.test/video");
+        let message = error.to_string();
+
+        assert!(message.starts_with("Playback failed:"));
+        assert!(!message.contains("Failed to spawn process"));
     }
 
     #[test]

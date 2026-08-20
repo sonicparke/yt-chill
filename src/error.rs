@@ -31,6 +31,9 @@ pub enum YtChillError {
     #[error("Failed to spawn process: {0}")]
     Spawn(String),
 
+    #[error("Playback failed: {0}")]
+    Playback(String),
+
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
