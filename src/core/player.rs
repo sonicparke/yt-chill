@@ -84,6 +84,8 @@ fn build_mpv_args(
         "--input-conf={}",
         input_conf_path.to_string_lossy()
     ));
+    args.push(format!("--volume={}", options.volume));
+    args.push("--volume-max=100".into());
 
     // Pin mpv's ytdl_hook to the yt-dlp on PATH. Without this, mpv may fall back to
     // a stale bundled youtube-dl and fail on videos the newer yt-dlp can extract
@@ -185,10 +187,13 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
     spinner.enable_steady_tick(Duration::from_millis(80));
 
     let vibing_spinner = spinner.clone();
+    let starting_volume = options.volume;
     let vibing_handle = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(6)).await;
         vibing_spinner.finish_and_clear();
-        println!("🎵 Playing — space pauses, b back to menu, q quits yt-chill.");
+        println!(
+            "🎵 Playing — yt-chill volume {starting_volume}% (relative to system); ↑/↓ volume, space pause, b menu, q quit."
+        );
     });
 
     let status = Command::new("mpv")
@@ -288,6 +293,7 @@ mod tests {
             video: false,
             format: Some("251/bestaudio".into()),
             verbose: false,
+            volume: 100,
         });
 
         assert_inline_option(&args, "--input-conf");
@@ -301,6 +307,7 @@ mod tests {
             video: false,
             format: None,
             verbose: false,
+            volume: 100,
         });
 
         assert!(args.iter().any(|arg| arg == "--quiet"));
@@ -317,11 +324,36 @@ mod tests {
     }
 
     #[test]
+    fn playback_volume_is_internal_and_capped_at_full_scale() {
+        let args = args_for(PlayOptions {
+            video: false,
+            format: None,
+            verbose: false,
+            volume: 50,
+        });
+
+        assert!(args.iter().any(|arg| arg == "--volume=50"));
+        assert!(args.iter().any(|arg| arg == "--volume-max=100"));
+        assert_eq!(
+            args.iter().filter(|arg| arg.starts_with("--volume=")).count(),
+            1
+        );
+        assert_inline_option(&args, "--volume");
+        assert_inline_option(&args, "--volume-max");
+    }
+
+    #[test]
+    fn default_playback_volume_preserves_existing_full_scale_behavior() {
+        assert_eq!(PlayOptions::default().volume, 100);
+    }
+
+    #[test]
     fn audio_only_without_custom_format_requests_default_audio_format() {
         let args = args_for(PlayOptions {
             video: false,
             format: None,
             verbose: false,
+            volume: 100,
         });
 
         assert!(args.iter().any(|arg| arg == "--no-video"));
@@ -334,6 +366,7 @@ mod tests {
             video: false,
             format: Some("251/bestaudio".into()),
             verbose: false,
+            volume: 100,
         });
 
         assert!(args.iter().any(|arg| arg == "--no-video"));
@@ -347,6 +380,7 @@ mod tests {
             video: true,
             format: None,
             verbose: false,
+            volume: 100,
         });
 
         assert!(!args.iter().any(|arg| arg == "--no-video"));
@@ -360,6 +394,7 @@ mod tests {
             video: true,
             format: Some(VIDEO_FORMAT.into()),
             verbose: false,
+            volume: 100,
         });
 
         assert!(!args.iter().any(|arg| arg == "--no-video"));

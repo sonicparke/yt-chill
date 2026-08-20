@@ -128,7 +128,7 @@ impl Default for Config {
 // ============================================
 
 /// Options for playback
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PlayOptions {
     /// Include video (false = audio-only)
     pub video: bool,
@@ -136,6 +136,19 @@ pub struct PlayOptions {
     pub format: Option<String>,
     /// When true, mpv is less quiet and stderr is inherited (easier debugging).
     pub verbose: bool,
+    /// yt-chill software volume relative to system output (0-100)
+    pub volume: u8,
+}
+
+impl Default for PlayOptions {
+    fn default() -> Self {
+        Self {
+            video: false,
+            format: None,
+            verbose: false,
+            volume: 100,
+        }
+    }
 }
 
 /// Options for video download

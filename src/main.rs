@@ -536,6 +536,7 @@ async fn main() -> anyhow::Result<()> {
                             video: cli.video,
                             format,
                             verbose: cli.verbose,
+                            volume: cfg.volume,
                         };
                         match player::play(&url, &opts).await {
                             Ok(player::MpvPlayExit::StreamEnded) => {
