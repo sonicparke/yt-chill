@@ -1,6 +1,6 @@
 //! Configuration management
 
-use crate::error::Result;
+use crate::error::{Result, YtChillError};
 use crate::types::Config;
 use crate::utils::paths::{ensure_dir, get_config_dir, get_config_path};
 use serde_json::json;
@@ -34,9 +34,20 @@ pub async fn load_config() -> Result<Config> {
         Config::default()
     };
 
+    validate_config(&config)?;
     config.download_dir = resolve_download_dir(&config.download_dir);
 
     Ok(config)
+}
+
+fn validate_config(config: &Config) -> Result<()> {
+    if config.volume > 100 {
+        return Err(YtChillError::InvalidConfig(
+            "volume must be between 0 and 100".into(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Resolve `download_dir`: fall back to the platform default when empty,
@@ -144,10 +155,28 @@ mod tests {
     fn minimal_json_uses_defaults_for_missing_fields() -> Result<()> {
         let cfg: Config = serde_json::from_str(r#"{"limit": 4}"#)?;
         assert_eq!(cfg.limit, 4);
+        assert_eq!(cfg.volume, 100);
         assert_eq!(cfg.selector, SelectorType::default());
         assert_eq!(cfg.audio_format.as_deref(), Some(AUDIO_ONLY_FORMAT));
         assert_eq!(cfg.video_format, None);
         Ok(())
+    }
+
+    #[test]
+    fn config_accepts_app_volume_from_zero_through_one_hundred() -> Result<()> {
+        for volume in [0, 50, 100] {
+            let cfg: Config = serde_json::from_value(json!({ "volume": volume }))?;
+            validate_config(&cfg)?;
+            assert_eq!(cfg.volume, volume);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn config_rejects_app_volume_above_one_hundred() {
+        let cfg: Config = serde_json::from_value(json!({ "volume": 101 })).unwrap();
+        let error = validate_config(&cfg).unwrap_err();
+        assert!(error.to_string().contains("volume must be between 0 and 100"));
     }
 
     #[test]

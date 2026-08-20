@@ -100,6 +100,8 @@ pub struct Config {
     pub video_format: Option<String>,
     /// Video player
     pub player: PlayerType,
+    /// yt-chill's software volume as a percentage of system output (0-100)
+    pub volume: u8,
     /// Menu selector
     pub selector: SelectorType,
 }
@@ -115,6 +117,7 @@ impl Default for Config {
             audio_format: Some(AUDIO_ONLY_FORMAT.into()),
             video_format: None,
             player: PlayerType::default(),
+            volume: 100,
             selector: SelectorType::default(),
         }
     }
