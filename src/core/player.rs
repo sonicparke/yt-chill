@@ -6,6 +6,7 @@ use crate::utils::process::{is_command_available, resolve_on_path};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::process::Command;
 
@@ -42,6 +43,13 @@ pub enum MpvPlayExit {
     QuitApp,
 }
 
+/// Successful mpv playback plus the last volume observed by yt-chill's helper script.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MpvPlayOutcome {
+    pub exit: MpvPlayExit,
+    pub final_volume: Option<u8>,
+}
+
 /// Minimal mpv keymap when [`--no-input-default-bindings`](https://mpv.io/manual/master/#options-no-input-default-bindings)
 /// is set. Exit codes: **10** = back to menu, **20** = quit app (see `quit` command).
 const MPV_INPUT_YT_CHILL: &str = r#"# yt-chill (used with --no-input-default-bindings)
@@ -54,21 +62,133 @@ UP add volume 2
 DOWN add volume -2
 "#;
 
+// mpv documents `observe_property` as delivering an initial value and subsequent
+// changes. Writing on each observation also preserves the latest value if mpv
+// cannot deliver an orderly shutdown event.
+// Source: https://mpv.io/manual/master/#lua-scripting-mp-observe-property
+const MPV_VOLUME_OBSERVER: &str = r#"local state_path = os.getenv("YT_CHILL_VOLUME_STATE")
+
+local function save_volume(_, value)
+    if not state_path or state_path == "" or value == nil then
+        return
+    end
+
+    local rounded = math.floor(value + 0.5)
+    if rounded < 0 or rounded > 100 then
+        return
+    end
+
+    local file = io.open(state_path, "w")
+    if file then
+        file:write(tostring(rounded))
+        file:close()
+    end
+end
+
+mp.observe_property("volume", "number", save_volume)
+mp.register_event("shutdown", function()
+    save_volume("volume", mp.get_property_number("volume"))
+end)
+"#;
+
 const HOMEBREW_MEDIA_REPAIR_HINT: &str =
     "Homebrew media libraries look out of sync. Try: brew reinstall x265 ffmpeg mpv";
 
-struct MpvInputConfFile(PathBuf);
+static MPV_RUNTIME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-impl Drop for MpvInputConfFile {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+fn create_private_dir(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700).create(path)
     }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir(path)
+    }
+}
+
+struct MpvRuntimeFiles {
+    dir: PathBuf,
+    input_conf: PathBuf,
+    volume_observer: PathBuf,
+    volume_state: PathBuf,
+}
+
+impl MpvRuntimeFiles {
+    fn create() -> Result<Self> {
+        let sequence = MPV_RUNTIME_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let base = std::env::temp_dir();
+        let mut created_dir = None;
+
+        for attempt in 0..16_u8 {
+            let dir = base.join(format!(
+                "yt-chill-mpv-{}-{sequence}-{attempt}",
+                std::process::id()
+            ));
+            match create_private_dir(&dir) {
+                Ok(()) => {
+                    created_dir = Some(dir);
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(YtChillError::Spawn(format!(
+                        "Failed to create mpv runtime directory: {error}"
+                    )));
+                }
+            }
+        }
+
+        let dir = created_dir.ok_or_else(|| {
+            YtChillError::Spawn("Failed to create a unique mpv runtime directory".into())
+        })?;
+        let files = Self {
+            input_conf: dir.join("input.conf"),
+            volume_observer: dir.join("volume-observer.lua"),
+            volume_state: dir.join("volume.state"),
+            dir,
+        };
+
+        std::fs::write(&files.input_conf, MPV_INPUT_YT_CHILL)
+            .and_then(|_| std::fs::write(&files.volume_observer, MPV_VOLUME_OBSERVER))
+            .map_err(|error| {
+                YtChillError::Spawn(format!("Failed to write mpv runtime files: {error}"))
+            })?;
+
+        Ok(files)
+    }
+
+    fn observed_volume(&self) -> Option<u8> {
+        std::fs::read_to_string(&self.volume_state)
+            .ok()
+            .and_then(|raw| parse_observed_volume(&raw))
+    }
+}
+
+impl Drop for MpvRuntimeFiles {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.input_conf);
+        let _ = std::fs::remove_file(&self.volume_observer);
+        let _ = std::fs::remove_file(&self.volume_state);
+        let _ = std::fs::remove_dir(&self.dir);
+    }
+}
+
+fn parse_observed_volume(raw: &str) -> Option<u8> {
+    raw.trim()
+        .parse::<u8>()
+        .ok()
+        .filter(|volume| *volume <= 100)
 }
 
 fn build_mpv_args(
     url: &str,
     options: &PlayOptions,
     input_conf_path: &Path,
+    volume_observer_path: &Path,
     ytdl_path: Option<&Path>,
 ) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
@@ -83,6 +203,10 @@ fn build_mpv_args(
     args.push(format!(
         "--input-conf={}",
         input_conf_path.to_string_lossy()
+    ));
+    args.push(format!(
+        "--script={}",
+        volume_observer_path.to_string_lossy()
     ));
     // mpv's volume is its internal software mixer, so system output volume
     // remains a downstream multiplier.
@@ -144,6 +268,22 @@ fn mpv_unexpected_exit_error(code: i32, url: &str) -> YtChillError {
     ))
 }
 
+fn mpv_outcome_from_status(
+    code: Option<i32>,
+    final_volume: Option<u8>,
+    url: &str,
+) -> Result<MpvPlayOutcome> {
+    let exit = match code {
+        Some(0) => MpvPlayExit::StreamEnded,
+        Some(10) => MpvPlayExit::BackToMenu,
+        Some(20) => MpvPlayExit::QuitApp,
+        None => return Err(mpv_termination_error(&[])),
+        Some(other) => return Err(mpv_unexpected_exit_error(other, url)),
+    };
+
+    Ok(MpvPlayOutcome { exit, final_volume })
+}
+
 async fn check_mpv_starts() -> Result<()> {
     let output = Command::new("mpv")
         .arg("--version")
@@ -164,21 +304,23 @@ async fn check_mpv_starts() -> Result<()> {
 }
 
 /// Play audio/video using mpv with buffering indicator.
-pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
+pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayOutcome> {
     if !is_command_available("mpv") {
         return Err(YtChillError::MissingDependency("mpv".into()));
     }
 
     check_mpv_starts().await?;
 
-    let config_path =
-        std::env::temp_dir().join(format!("yt-chill-mpv-input-{}.conf", std::process::id()));
-    std::fs::write(&config_path, MPV_INPUT_YT_CHILL)
-        .map_err(|e| YtChillError::Spawn(format!("Failed to write mpv input conf: {}", e)))?;
-    let _input_cleanup = MpvInputConfFile(config_path.clone());
+    let runtime_files = MpvRuntimeFiles::create()?;
 
     let ytdl_path = resolve_on_path("yt-dlp");
-    let args = build_mpv_args(url, options, &config_path, ytdl_path.as_deref());
+    let args = build_mpv_args(
+        url,
+        options,
+        &runtime_files.input_conf,
+        &runtime_files.volume_observer,
+        ytdl_path.as_deref(),
+    );
 
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
@@ -201,6 +343,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
 
     let status = Command::new("mpv")
         .args(&args)
+        .env("YT_CHILL_VOLUME_STATE", &runtime_files.volume_state)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         // YouTube / ytdl / audio errors go to stderr; discarding them made exit 1 impossible to debug.
@@ -212,17 +355,7 @@ pub async fn play(url: &str, options: &PlayOptions) -> Result<MpvPlayExit> {
     vibing_handle.abort();
     spinner.finish_and_clear();
 
-    let code = status.code();
-
-    let exit = match code {
-        Some(0) => MpvPlayExit::StreamEnded,
-        Some(10) => MpvPlayExit::BackToMenu,
-        Some(20) => MpvPlayExit::QuitApp,
-        None => return Err(mpv_termination_error(&[])),
-        Some(other) => return Err(mpv_unexpected_exit_error(other, url)),
-    };
-
-    Ok(exit)
+    mpv_outcome_from_status(status.code(), runtime_files.observed_volume(), url)
 }
 
 /// Play with syncplay
@@ -257,6 +390,7 @@ mod tests {
             "https://www.youtube.com/watch?v=test",
             &options,
             Path::new("/tmp/yt-chill-input.conf"),
+            Path::new("/tmp/yt-chill-volume.lua"),
             Some(Path::new("/usr/local/bin/yt-dlp")),
         )
     }
@@ -350,6 +484,78 @@ mod tests {
     #[test]
     fn default_playback_volume_preserves_existing_full_scale_behavior() {
         assert_eq!(PlayOptions::default().volume, 100);
+    }
+
+    #[test]
+    fn playback_loads_volume_observer_with_a_state_file() {
+        let args = args_for(PlayOptions {
+            volume: 50,
+            ..PlayOptions::default()
+        });
+
+        assert!(
+            args.iter()
+                .any(|arg| arg == "--script=/tmp/yt-chill-volume.lua")
+        );
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg.starts_with("--input-ipc-server="))
+        );
+    }
+
+    #[test]
+    fn observed_volume_uses_last_valid_bounded_value() {
+        assert_eq!(parse_observed_volume("48\n"), Some(48));
+        assert_eq!(parse_observed_volume("0"), Some(0));
+        assert_eq!(parse_observed_volume("100"), Some(100));
+    }
+
+    #[test]
+    fn invalid_observed_volume_is_not_persistable() {
+        assert_eq!(parse_observed_volume("101"), None);
+        assert_eq!(parse_observed_volume("not-a-volume"), None);
+        assert_eq!(parse_observed_volume(""), None);
+    }
+
+    #[test]
+    fn mpv_runtime_files_are_removed_after_playback_scope() {
+        let runtime_dir;
+        {
+            let files = MpvRuntimeFiles::create().unwrap();
+            runtime_dir = files.dir.clone();
+            assert!(files.input_conf.exists());
+            assert!(files.volume_observer.exists());
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    std::fs::metadata(&runtime_dir)
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o700
+                );
+            }
+        }
+
+        assert!(!runtime_dir.exists());
+    }
+
+    #[test]
+    fn successful_mpv_exits_preserve_observed_volume() {
+        for (code, expected_exit) in [
+            (0, MpvPlayExit::StreamEnded),
+            (10, MpvPlayExit::BackToMenu),
+            (20, MpvPlayExit::QuitApp),
+        ] {
+            let outcome =
+                mpv_outcome_from_status(Some(code), Some(48), "https://example.test/video")
+                    .unwrap();
+            assert_eq!(outcome.exit, expected_exit);
+            assert_eq!(outcome.final_volume, Some(48));
+        }
     }
 
     #[test]

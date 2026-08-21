@@ -18,7 +18,9 @@ use crate::types::{AppState, Config, DownloadOptions, MenuItem, PlayOptions, Vid
 use crate::ui::selector::{create_selector, detect_selector};
 use crate::utils::flow::{next_state_after_play, next_state_after_skipped_flow};
 use crate::utils::paths::{ensure_app_dirs, get_history_path};
-use crate::utils::playback::{resolve_volume, use_syncplay};
+use crate::utils::playback::{
+    next_session_volume, resolve_volume, use_syncplay, volume_to_persist,
+};
 use crate::utils::process::is_command_available;
 
 /// YouTube audio in your terminal. Clean and distraction-free.
@@ -261,7 +263,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Load config (needed for dependency checks and the main loop).
-    let cfg = config::load_config().await?;
+    let mut cfg = config::load_config().await?;
+    let mut session_volume = resolve_volume(cli.volume, cfg.volume);
 
     // Fail fast if required external tools are missing.
     check_external_deps(&cli, &cfg);
@@ -540,17 +543,26 @@ async fn main() -> anyhow::Result<()> {
                             video: cli.video,
                             format,
                             verbose: cli.verbose,
-                            volume: resolve_volume(cli.volume, cfg.volume),
+                            volume: session_volume,
                         };
                         match player::play(&url, &opts).await {
-                            Ok(player::MpvPlayExit::StreamEnded) => {
-                                play_ok = true;
-                            }
-                            Ok(player::MpvPlayExit::BackToMenu) => {
-                                play_ok = true;
-                            }
-                            Ok(player::MpvPlayExit::QuitApp) => {
-                                play_ok = false;
+                            Ok(outcome) => {
+                                session_volume =
+                                    next_session_volume(session_volume, outcome.final_volume);
+                                if let Some(volume) =
+                                    volume_to_persist(cli.volume, cfg.volume, outcome.final_volume)
+                                {
+                                    match config::update_volume(volume).await {
+                                        Ok(()) => cfg.volume = volume,
+                                        Err(error) => eprintln!(
+                                            "{} Couldn't save volume: {}",
+                                            "Warning:".yellow(),
+                                            error
+                                        ),
+                                    }
+                                }
+
+                                play_ok = !matches!(outcome.exit, player::MpvPlayExit::QuitApp);
                             }
                             Err(e) => {
                                 play_ok = false;

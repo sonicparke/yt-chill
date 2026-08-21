@@ -5,8 +5,12 @@ use crate::types::Config;
 use crate::utils::paths::{ensure_dir, get_config_dir, get_config_path};
 use serde_json::json;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::fs;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+
+static CONFIG_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Map legacy `selector` string values removed from [`crate::types::SelectorType`].
 fn normalize_selector_in_json(value: &mut serde_json::Value) {
@@ -50,6 +54,20 @@ fn validate_config(config: &Config) -> Result<()> {
     Ok(())
 }
 
+fn with_volume(mut raw: serde_json::Value, volume: u8) -> Result<serde_json::Value> {
+    if volume > 100 {
+        return Err(YtChillError::InvalidConfig(
+            "volume must be between 0 and 100".into(),
+        ));
+    }
+
+    let object = raw.as_object_mut().ok_or_else(|| {
+        YtChillError::InvalidConfig("config file must contain a JSON object".into())
+    })?;
+    object.insert("volume".into(), json!(volume));
+    Ok(raw)
+}
+
 /// Resolve `download_dir`: fall back to the platform default when empty,
 /// then expand any leading `~`.
 fn resolve_download_dir(raw: &str) -> String {
@@ -69,7 +87,72 @@ pub async fn save_config(config: &Config) -> Result<()> {
     validate_config(config)?;
     ensure_dir(&get_config_dir()).await?;
     let content = serde_json::to_string_pretty(config)?;
-    fs::write(get_config_path(), content).await?;
+    atomic_write(Path::new(&get_config_path()), &content).await?;
+    Ok(())
+}
+
+async fn atomic_write(path: &Path, content: &str) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| YtChillError::InvalidConfig("config path has no parent directory".into()))?;
+    let sequence = CONFIG_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut temporary = None;
+
+    for attempt in 0..16_u8 {
+        let candidate = parent.join(format!(
+            ".yt-chill-config-{}-{sequence}-{attempt}.tmp",
+            std::process::id()
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+            .await
+        {
+            Ok(file) => {
+                temporary = Some((candidate, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    let (temporary_path, mut file) = temporary.ok_or_else(|| {
+        YtChillError::InvalidConfig("could not create a unique config staging file".into())
+    })?;
+    let result = async {
+        file.write_all(content.as_bytes()).await?;
+        file.sync_all().await?;
+        drop(file);
+        fs::rename(&temporary_path, path).await?;
+        Result::Ok(())
+    }
+    .await;
+
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary_path).await;
+    }
+    result
+}
+
+/// Update only the persistent volume field, preserving unknown and unresolved
+/// values in the user's JSON config.
+pub async fn update_volume(volume: u8) -> Result<()> {
+    let config_path = get_config_path();
+    let raw = if Path::new(&config_path).exists() {
+        serde_json::from_str(&fs::read_to_string(&config_path).await?)?
+    } else {
+        serde_json::to_value(Config::default())?
+    };
+    let updated = with_volume(raw, volume)?;
+
+    ensure_dir(&get_config_dir()).await?;
+    atomic_write(
+        Path::new(&config_path),
+        &serde_json::to_string_pretty(&updated)?,
+    )
+    .await?;
     Ok(())
 }
 
@@ -170,6 +253,44 @@ mod tests {
             validate_config(&cfg)?;
             assert_eq!(cfg.volume, volume);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn targeted_volume_update_preserves_unknown_and_unresolved_fields() -> Result<()> {
+        let raw = json!({
+            "volume": 50,
+            "download_dir": "~/Music",
+            "future_setting": { "enabled": true }
+        });
+
+        let updated = with_volume(raw, 48)?;
+
+        assert_eq!(updated["volume"], 48);
+        assert_eq!(updated["download_dir"], "~/Music");
+        assert_eq!(updated["future_setting"], json!({ "enabled": true }));
+        Ok(())
+    }
+
+    #[test]
+    fn atomic_write_replaces_complete_config_content() -> Result<()> {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "yt-chill-config-write-test-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&dir)?;
+        let path = dir.join("config.json");
+
+        tokio_test::block_on(atomic_write(&path, "{\"volume\":50}"))?;
+        tokio_test::block_on(atomic_write(&path, "{\"volume\":48}"))?;
+
+        assert_eq!(std::fs::read_to_string(&path)?, "{\"volume\":48}");
+        std::fs::remove_file(path)?;
+        std::fs::remove_dir(dir)?;
         Ok(())
     }
 

@@ -38,7 +38,7 @@ yt-chill -e                      # Edit config
 While playing (mpv):
 - **Space** — Pause/resume
 - **←/→** — Seek backward/forward
-- **↑/↓** — yt-chill volume up/down by 2% for the current playback
+- **↑/↓** — yt-chill volume up/down by 2%; carries to the next track and future launches
 - **b** — Stop playback and return to the main menu
 - **q** — Stop playback and exit yt-chill
 
@@ -94,7 +94,9 @@ Stored at `~/.config/yt-chill/config.json`:
 
 `audio_format` and `video_format` are yt-dlp format selectors used for streaming playback. Audio-only playback defaults to `bestaudio[abr<=160]/bestaudio/best`; video playback does not force a default selector unless you set `video_format`.
 
-`volume` is yt-chill's persistent software volume from `0` to `100`. It is relative to system output volume: if yt-chill is at 50% and system volume changes from 50% to 30%, yt-chill stays at 50% of the new system level (conceptually 15% of full output). `--volume` overrides the configured value for one run. ↑/↓ changes only the current playback session and never changes system volume or rewrites the config.
+`volume` is yt-chill's persistent software volume from `0` to `100`. It is relative to system output volume: if yt-chill is at 50% and system volume changes from 50% to 30%, yt-chill stays at 50% of the new system level (conceptually 15% of full output). During playback, ↑/↓ changes yt-chill by 2% without changing system volume. After playback ends normally or you use **b**/**q**, the last interactive value carries to the next track and is saved for future launches.
+
+`--volume` overrides the configured value for one run. Interactive changes still carry between tracks in that run, but do not rewrite the persistent config when an override is active.
 
 Volume settings apply to direct mpv streaming in audio and video modes. Downloads have no playback volume, and Syncplay uses its own volume controls.
 
